@@ -1,0 +1,45 @@
+name: Build migration planner exe
+on:
+  push:
+    branches: [main]
+    tags: ["planner-v*"]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt -r requirements-planner.txt pytest
+      - run: python -m pytest -q tests/test_planner.py
+  build:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-planner.txt pyinstaller
+      - run: pyinstaller --noconfirm --onefile --windowed --name PVEMigrationPlanner --icon pvetools/assets/fsas.ico --add-data "pvetools/assets;pvetools/assets" --exclude-module requests pvemigplan_gui.py
+      - run: pyinstaller --noconfirm --onefile --console --name pvemigplan-cli --icon pvetools/assets/fsas.ico --add-data "pvetools/assets;pvetools/assets" --exclude-module requests pvemigplan_cli.py
+      - run: dist\pvemigplan-cli.exe --version
+      - name: Smoke test (plan completo con un inventario de ejemplo)
+        run: |
+          python -c "import sys; sys.path[:0]=['.','tests']; from planner_sample import sample_sheets; from pvetools.export import to_xlsx; to_xlsx(sample_sheets(), 'ejemplo.xlsx')"
+          dist\pvemigplan-cli.exe ejemplo.xlsx -o salida --cliente Demo -q
+          if (!(Test-Path salida\plan_migracion.docx) -or !(Test-Path salida\plan_migracion.xlsx)) { exit 1 }
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PVEMigrationPlanner-windows
+          path: |
+            dist/*.exe
+            salida/*
+      - if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
