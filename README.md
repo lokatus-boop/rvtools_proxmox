@@ -8,8 +8,6 @@ Herramienta para Windows que se conecta a la API de **Proxmox VE 8 y 9**, tanto 
 
 ![GUI](docs/main.png)
 
-![Plan de migración](docs/plan.png)
-
 ## Aviso de uso
 
 * Herramienta interna destinada exclusivamente a proyectos de Fsas Technologies; no está permitida su distribución ni su uso fuera de ese ámbito.
@@ -59,39 +57,9 @@ El aviso se muestra al abrir la aplicación por primera vez (hay que aceptarlo),
 
 En la aplicación las pestañas se agrupan en un panel lateral por categorías (Máquinas virtuales, Hosts, Red, Almacenamiento, Clúster, Seguridad, Resumen).
 
-## Planificador de migración a otro Proxmox
+## Formato de exportación
 
-Botón **Planificar migración…** (o `--target-host` en la línea de comandos). Lee también el Proxmox de destino **en modo solo lectura**, compara ambos entornos y genera:
-
-* `plan_migracion_*.xlsx`: hoja **Plan** (método recomendado por VM/CT, nodo y VMID destino, mapeos, datos a copiar, tiempo y corte estimados, comando), **Comprobaciones** (bloqueos y avisos), **Capacidad** (almacenamiento y RAM del destino antes/después), **Mapeos** y **Métodos**.
-* `migracion_remote_*.sh`: comandos `qm/pct remote-migrate` listos para revisar y lanzar en los nodos de origen.
-* `migracion_backup_restore_*.sh`: alternativa con `vzdump` + `qmrestore`/`pct restore` (vía PBS compartido si existe), incluyendo el ajuste de bridges.
-
-**No ejecuta nada**: los scripts empiezan con `exit 1` para que nadie los lance enteros por error; se ejecutan comando a comando.
-
-Métodos que contempla:
-
-| Método | Cuándo |
-|---|---|
-| `qm remote-migrate --online` | VMs encendidas: copia en caliente entre clústeres, corte de segundos (PVE ≥ 7.3, *experimental* en Proxmox) |
-| `qm/pct remote-migrate` en frío | VMs/CTs apagadas o con CPU incompatible para migrar en caliente |
-| `pct remote-migrate --restart` | Contenedores encendidos (no hay migración en caliente de CTs) |
-| Backup/restauración vía PBS compartido | Plantillas, VMs con passthrough o si se prefiere el método más conservador; *live-restore* reduce el corte |
-| vzdump + copia + restauración | Sin PBS común |
-| Replicación de almacenamiento (ZFS send/recv, RBD) | Discos muy grandes (manual) |
-| Ampliar el clúster | Nodos destino vacíos en la misma red: unirlos, migrar en caliente dentro del clúster y retirar los antiguos |
-
-Comprobaciones por VM: VMID ocupado en destino (propone otro), almacenamiento y bridge/VNet destino existentes y con el tipo de contenido correcto, espacio suficiente (acumulado) y RAM libre en el nodo destino, VLAN sobre bridge no *VLAN aware*, CPU `host` entre modelos o fabricantes distintos, passthrough PCI/USB sin mapping, discos físicos o bind mounts, ISO montada, snapshots, HA, replicación, bloqueos, pools y versión de PVE del destino.
-
-El nodo destino se elige automáticamente (el de más RAM libre, repartiendo) o se fija a mano. Los mapeos de almacenamiento y red se proponen solos (mismo nombre si existe) y se pueden cambiar.
-
-Ejemplo por línea de comandos:
-
-```bat
-pveinventory-cli.exe --host pve-viejo --user inventario@pve --token-id inv --token-secret XXXX ^
-    --target-host pve-nuevo --target-token-id inv --target-token-secret YYYY ^
-    --map-storage local-lvm=local-zfs --map-bridge vmbr1=vmbr0 --bandwidth 10 --plan-dir C:\Migracion
-```
+Las hojas y columnas del Excel/CSV son un formato estable y versionado (hoy, versión 1), pensado para que otras aplicaciones lo lean, como el planificador de migración. Está documentado en [docs/FORMATO_EXPORTACION.md](docs/FORMATO_EXPORTACION.md) y definido en `pvetools/schema.py`. Una prueba automática falla si el inventario exporta columnas que no están en el formato.
 
 ## Cómo conectarse
 
@@ -150,7 +118,8 @@ Opción B, en GitHub: sube el proyecto a un repositorio y el workflow `.github/w
 ```bash
 pip install -r requirements.txt
 python -m pvetools                 # GUI (sin argumentos) o CLI (con argumentos)
-python tests/test_inventory.py     # prueba con un Proxmox simulado (clúster PVE 9 + nodo PVE 8)
+python -m pytest tests             # pruebas con un Proxmox simulado (clúster PVE 9 + nodo PVE 8)
+python tools/gen_format_doc.py     # regenera docs/FORMATO_EXPORTACION.md tras cambiar schema.py
 ```
 
 `tests/mock_pve.py` simula la API de Proxmox, así que se puede probar sin servidores reales.

@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 
 from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, asset_path
+from .schema import FORMAT_VERSION, SCHEMA
 
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -18,8 +19,9 @@ SEV_FILL = {"CRÍTICO": PatternFill("solid", fgColor="F8CBAD"),
             "INFO": PatternFill("solid", fgColor="DDEBF7")}
 
 
-def columns(rows: list[dict]) -> list[str]:
-    cols: list[str] = []
+def columns(rows: list[dict], sheet: str | None = None) -> list[str]:
+    """Columnas de una hoja: las del formato estable (schema.py) y, al final, cualquier extra."""
+    cols: list[str] = list(SCHEMA.get(sheet, [])) if sheet else []
     for r in rows:
         for k in r:
             if k not in cols:
@@ -32,7 +34,7 @@ def to_xlsx(sheets: dict, path: str):
     _notice_sheet(wb.active)
     for name, rows in sheets.items():
         ws = wb.create_sheet(name[:31])
-        cols = columns(rows)
+        cols = columns(rows, name)
         if not cols:
             ws.append(["(sin datos)"])
             continue
@@ -75,7 +77,8 @@ def _notice_sheet(ws):
     except Exception:  # noqa: BLE001
         pass
     ws.cell(row, 1, f"{APP_NAME} {__version__} — Inventario de Proxmox VE · {COMPANY}").font = Font(bold=True, size=14)
-    ws.cell(row + 1, 1, f"Generado: {dt.datetime.now():%Y-%m-%d %H:%M:%S}").font = Font(italic=True, color="666666")
+    ws.cell(row + 1, 1, f"Generado: {dt.datetime.now():%Y-%m-%d %H:%M:%S} · Versión de formato: {FORMAT_VERSION}").font = \
+        Font(italic=True, color="666666")
     r = row + 3
     for line in DISCLAIMER.split("\n"):
         c = ws.cell(r, 1, line)
@@ -90,7 +93,7 @@ def to_csv(sheets: dict, folder: str, prefix: str = ""):
     paths = []
     for name, rows in sheets.items():
         p = os.path.join(folder, f"{prefix}{name}.csv")
-        cols = columns(rows)
+        cols = columns(rows, name)
         # utf-8-sig + ';' para que Excel en español lo abra directamente
         with open(p, "w", newline="", encoding="utf-8-sig") as f:
             w = csv.DictWriter(f, fieldnames=cols or ["(sin datos)"], delimiter=";")

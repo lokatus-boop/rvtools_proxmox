@@ -185,43 +185,6 @@ def standalone_data():
     }
 
 
-def target_data():
-    """Clúster de destino para el planificador de migración (PVE 9, Intel)."""
-    return {
-        "version": {"version": "9.1.1", "release": "9.1"},
-        "cluster/status": [
-            {"type": "cluster", "name": "CLU-NEW", "quorate": 1, "nodes": 2, "version": 3},
-            {"type": "node", "name": "new1", "ip": "10.1.0.21", "online": 1},
-            {"type": "node", "name": "new2", "ip": "10.1.0.22", "online": 1},
-        ],
-        "nodes": [{"node": "new1"}, {"node": "new2"}],
-        "cluster/resources": [
-            {"type": "node", "node": "new1", "status": "online", "cpu": 0.01, "maxcpu": 64, "mem": 10 * G, "maxmem": 256 * G, "uptime": 1000},
-            {"type": "node", "node": "new2", "status": "online", "cpu": 0.01, "maxcpu": 64, "mem": 200 * G, "maxmem": 256 * G, "uptime": 1000},
-            {"type": "qemu", "node": "new1", "vmid": 100, "name": "ya-existe", "status": "running", "maxmem": 2 * G},
-            {"type": "storage", "node": "new1", "storage": "local-zfs", "status": "available", "plugintype": "zfspool",
-             "disk": 100 * G, "maxdisk": 1000 * G, "content": "images,rootdir", "shared": 0},
-            {"type": "storage", "node": "new2", "storage": "local-zfs", "status": "available", "plugintype": "zfspool",
-             "disk": 100 * G, "maxdisk": 1000 * G, "content": "images,rootdir", "shared": 0},
-            {"type": "storage", "node": "new1", "storage": "pbs-new", "status": "available", "plugintype": "pbs",
-             "disk": 1000 * G, "maxdisk": 4000 * G, "content": "backup", "shared": 1},
-        ],
-        "storage": [{"storage": "local-zfs", "type": "zfspool", "pool": "rpool/data", "content": "images,rootdir"},
-                    {"storage": "pbs-new", "type": "pbs", "server": "10.0.0.50", "datastore": "store1", "content": "backup"}],
-        "nodes/new1/status": {"cpuinfo": {"model": "Intel Xeon Gold 6338", "sockets": 2, "cores": 32, "cpus": 64},
-                              "memory": {"total": 256 * G, "used": 10 * G}},
-        "nodes/new2/status": {"cpuinfo": {"model": "Intel Xeon Gold 6338", "sockets": 2, "cores": 32, "cpus": 64},
-                              "memory": {"total": 256 * G, "used": 200 * G}},
-        "nodes/new1/version": {"version": "9.1.1"}, "nodes/new2/version": {"version": "9.1.1"},
-        "nodes/new1/network": [{"iface": "vmbr0", "type": "bridge", "active": 1, "bridge_ports": "eno1", "bridge_vlan_aware": 1}],
-        "nodes/new2/network": [{"iface": "vmbr0", "type": "bridge", "active": 1, "bridge_ports": "eno1", "bridge_vlan_aware": 1}],
-        "nodes/new1/certificates/info": [{"filename": "pve-ssl.pem", "fingerprint": "11:22:33", "notafter": NOW + 86400 * 700}],
-        "nodes/new2/certificates/info": [{"filename": "pve-ssl.pem", "fingerprint": "44:55:66", "notafter": NOW + 86400 * 700}],
-        "nodes/new1/qemu/100/config": {"name": "ya-existe", "memory": 2048},
-        "nodes/new1/qemu/100/snapshot": [{"name": "current"}],
-    }
-
-
 class Handler(BaseHTTPRequestHandler):
     data = {}
     TOKEN = "PVEAPIToken=auditor@pve!inv=secret"
@@ -260,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port, scen, cert, key = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
-    Handler.data = {"cluster": cluster_data, "standalone": standalone_data, "target": target_data}[scen]()
+    Handler.data = {"cluster": cluster_data, "standalone": standalone_data}[scen]()
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(cert, key)

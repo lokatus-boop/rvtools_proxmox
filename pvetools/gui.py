@@ -106,7 +106,6 @@ class App(tk.Tk):
         self.btn_run.pack(side="left", padx=16)
         ttk.Button(btns, text="Exportar Excel…", command=self._export_xlsx).pack(side="left", padx=4)
         ttk.Button(btns, text="Exportar CSV…", command=self._export_csv).pack(side="left", padx=4)
-        ttk.Button(btns, text="Planificar migración…", command=self._migration).pack(side="left", padx=16)
         ttk.Label(btns, text="Un nodo por clúster basta; los nodos sueltos, uno a uno.",
                   foreground="#555").pack(side="right", padx=4)
         r += 1
@@ -390,7 +389,7 @@ class App(tk.Tk):
         t = self.tabs[name]
         tree = t["tree"]
         rows = self.sheets.get(t["key"], [])
-        cols = columns(rows)
+        cols = columns(rows, t["key"])
         tree.delete(*tree.get_children())
         tree["columns"] = cols
         for c in cols:
@@ -441,29 +440,6 @@ class App(tk.Tk):
         if d:
             to_csv(self.sheets, d)
             self.status.set(f"CSV guardados en {d}")
-
-
-    # ------------------------------------------------------------------ migración
-    def _migration(self):
-        if not self.inv or not self.inv.sheets.get("vInfo"):
-            messagebox.showinfo(APP_NAME, "Primero inventaría el entorno de origen.")
-            return
-        from .migration_gui import MigrationDialog
-        MigrationDialog(self, self.inv)
-
-    def show_migration_plan(self, plan):
-        """Carga el plan en el panel lateral (grupo Migración)."""
-        self.sheets["Plan migración"] = plan.rows
-        self.sheets["Comprobaciones"] = plan.checks
-        self.sheets["Capacidad destino"] = plan.capacity
-        if "Plan migración" not in self.tabs:
-            gid = self.nav.insert("", 0, text="Migración", open=True)
-            for name in ("Plan migración", "Comprobaciones", "Capacidad destino"):
-                self._make_sheet(name, gid)
-        for name in ("Plan migración", "Comprobaciones", "Capacidad destino"):
-            self._fill(name)
-        self._update_nav_counts()
-        self._show_sheet("Plan migración")
 
 
 def _sort_key(v):

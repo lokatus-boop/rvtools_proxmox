@@ -66,26 +66,16 @@ def test_password_login_edge_cases():
         PVEClient(host=sa, user="root", password="pw")
 
 
-def test_migration_plan():
-    from pvetools.migrate import MigrationPlan
+
+def test_export_matches_schema():
+    """Lo que se exporta coincide con el formato estable documentado (schema.py)."""
+    from pvetools.collector import SHEETS
+    from pvetools.schema import SCHEMA
+    assert list(SCHEMA) == SHEETS
     tok = {"user": "auditor@pve", "token_id": "inv", "token_secret": "secret"}
-    src = Inventory(query_agent=False)
-    src.collect([{**tok, "host": serve(mock_pve.cluster_data())}])
-    tgt = Inventory(query_agent=False)
-    tgt.collect([{**tok, "host": serve(mock_pve.target_data())}])
-    plan = MigrationPlan(src, tgt, "10.1.0.21", {"bandwidth_gbps": 10}).build()
-    rows = {r["VMID"]: r for r in plan.rows}
-    assert plan.storage_map == {"ceph-vm": "local-zfs", "local-lvm": "local-zfs"}
-    assert plan.bridge_map == {"vmbr0": "vmbr0", "vmbr1": "vmbr0"}
-    web = rows[100]
-    assert web["VMID destino"] != 100 and web["Nodo destino"] == "new1"          # VMID ocupado, nodo con más RAM libre
-    assert web["Método recomendado"] == "remote-migrate en caliente"
-    assert "--online" in web["Comando"] and "ceph-vm:local-zfs" in web["Comando"]
-    db = rows[101]                                                                # passthrough + bloqueo
-    assert db["Resultado"] == "BLOQUEADA" and db["Método recomendado"].startswith("Manual")
-    assert rows[200]["Método recomendado"] == "remote-migrate con reinicio (CT)"
-    assert rows[9000]["Método recomendado"].startswith("Backup y restauración vía PBS")
-    out = plan.write(tempfile.mkdtemp())
-    script = open(out[1], encoding="utf-8").read()
-    assert 'ENDPOINT_new1="apitoken=PVEAPIToken=${TOKEN_ID}=${TOKEN_SECRET},host=10.1.0.21,fingerprint=11:22:33"' in script
-    assert "ha-manager remove vm:101" in script
+    sheets = Inventory().collect([{**tok, "host": serve(mock_pve.cluster_data())},
+                                  {**tok, "host": serve(mock_pve.standalone_data())}])
+    for name, rows in sheets.items():
+        for r in rows:
+            extra = set(r) - set(SCHEMA[name])
+            assert not extra, f"{name}: columnas fuera del formato {extra} (añádelas al final en schema.py)"

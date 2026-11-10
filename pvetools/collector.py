@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import __version__
 from . import extras
+from .schema import FORMAT_VERSION
 from .api import PVEClient, PVEError, q
 
 SHEETS = ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough",
@@ -117,9 +118,6 @@ class Inventory:
         self._seen_nodes: set[str] = set()
         self._dc_firewall: dict = {}
         self._ceph: dict = {}
-        # datos en bruto para el planificador de migración: (clúster, vmid) -> dict
-        self.raw: dict = {}
-        self.raw_storage_cfg: dict = {}
 
     # ---------------------------------------------------------------- entrada
     def collect(self, connections: list[dict]):
@@ -130,7 +128,7 @@ class Inventory:
             src = {"Host conectado": host, "Usuario": conn.get("user"),
                    "Autenticación": "API token" if conn.get("token_id") else "Contraseña",
                    "Fecha": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                   "Versión herramienta": __version__}
+                   "Versión herramienta": __version__, "Versión formato": FORMAT_VERSION}
             try:
                 self.progress(f"Conectando a {host}…")
                 api = PVEClient(**conn)
@@ -228,7 +226,6 @@ class Inventory:
         name = g.get("name") or cfg.get("name") or cfg.get("hostname")
         key = {"Clúster": label, "Nodo": node, "VMID": vmid, "Nombre": name, "Tipo": "VM" if kind == "qemu" else "CT"}
         out = {s: [] for s in ("vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough")}
-        self.raw[(label, vmid)] = {"node": node, "type": kind, "config": cfg, "resource": g}
         for k in sorted(cfg):
             ptype = "PCI" if re.match(r"^hostpci\d+$", k) else "USB" if re.match(r"^usb\d+$", k) else \
                 "Serie" if re.match(r"^serial\d+$", k) else "Dispositivo LXC" if re.match(r"^dev\d+$", k) else None
@@ -443,7 +440,6 @@ class Inventory:
     # ---------------------------------------------------------------- almacenamiento
     def _storages(self, api, label, storages):
         cfg = {s.get("storage"): s for s in api.try_get("storage", []) or []}
-        self.raw_storage_cfg[label] = cfg
         for s in sorted(storages, key=lambda x: (x.get("storage", ""), x.get("node", ""))):
             c = cfg.get(s.get("storage"), {})
             self.sheets["vDatastore"].append({
