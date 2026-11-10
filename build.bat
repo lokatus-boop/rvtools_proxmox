@@ -7,8 +7,8 @@ python -m venv .venv || goto :error
 call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip >nul
 pip install -r requirements.txt pyinstaller || goto :error
-pyinstaller --noconfirm --clean --onefile --windowed --name PVEInventory pveinventory_gui.py || goto :error
-pyinstaller --noconfirm --clean --onefile --console --name pveinventory-cli pveinventory_cli.py || goto :error
+pyinstaller --noconfirm --clean --onefile --windowed --name PVEInventory --icon pvetools/assets/fsas.ico --add-data "pvetools/assets;pvetools/assets" pveinventory_gui.py || goto :error
+pyinstaller --noconfirm --clean --onefile --console --name pveinventory-cli --icon pvetools/assets/fsas.ico --add-data "pvetools/assets;pvetools/assets" pveinventory_cli.py || goto :error
 echo.
 echo Listo: dist\PVEInventory.exe y dist\pveinventory-cli.exe
 goto :eof

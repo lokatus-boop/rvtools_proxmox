@@ -24,9 +24,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt pyinstaller
-      - run: pyinstaller --noconfirm --onefile --windowed --name PVEInventory pveinventory_gui.py
-      - run: pyinstaller --noconfirm --onefile --console --name pveinventory-cli pveinventory_cli.py
+      - run: pyinstaller --noconfirm --onefile --windowed --name PVEInventory --icon pvetools/assets/fsas.ico --add-data "pvetools/assets;pvetools/assets" pveinventory_gui.py
+      - run: pyinstaller --noconfirm --onefile --console --name pveinventory-cli --icon pvetools/assets/fsas.ico --add-data "pvetools/assets;pvetools/assets" pveinventory_cli.py
       - run: dist\pveinventory-cli.exe --version
+      - name: Smoke test (genera un Excel aunque no haya servidor)
+        run: |
+          dist\pveinventory-cli.exe --host 127.0.0.1:1 --user x@pam --password x -q -o smoke.xlsx
+          if (!(Test-Path smoke.xlsx)) { exit 1 }
+          exit 0
       - uses: actions/upload-artifact@v4
         with:
           name: PVEInventory-windows

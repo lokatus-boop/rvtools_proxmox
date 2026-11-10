@@ -10,18 +10,20 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from . import APP_NAME, __version__
+from .branding import COMPANY, DISCLAIMER, DISCLAIMER_TITLE, DISCLAIMER_VERSION, SHORT_NOTICE, asset_path
 from .collector import SHEETS, Inventory
 from .export import columns, to_csv, to_xlsx
 
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"), "PVEInventory")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "connections.json")
+SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 
 
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"{APP_NAME} {__version__} — Inventario Proxmox VE")
-        self.geometry("1280x780")
+        self.title(f"{APP_NAME} {__version__} — Inventario Proxmox VE · {COMPANY}")
+        self.geometry("1280x820")
         self.minsize(900, 560)
         self.connections: list[dict] = []  # los secretos solo se guardan en memoria
         self.sheets: dict = {}
@@ -29,12 +31,34 @@ class App(tk.Tk):
         self._build()
         self._load_saved()
         self.after(150, self._poll)
+        self.after(300, self._first_run_notice)
 
     # ------------------------------------------------------------------ UI
     def _build(self):
         style = ttk.Style(self)
         if "vista" in style.theme_names():
             style.theme_use("vista")
+        self._images = {}
+        try:
+            self._images["icon"] = tk.PhotoImage(file=asset_path("fsas_icon.png"))
+            self.iconphoto(True, self._images["icon"])
+        except tk.TclError:
+            pass
+
+        header = tk.Frame(self, bg="white", highlightthickness=1, highlightbackground="#d0d0d0")
+        header.pack(fill="x")
+        try:
+            self._images["logo"] = tk.PhotoImage(file=asset_path("fsas_logo_small.png"))
+            tk.Label(header, image=self._images["logo"], bg="white").pack(side="left", padx=12, pady=6)
+        except tk.TclError:
+            tk.Label(header, text=COMPANY, bg="white", font=("Segoe UI", 16, "bold")).pack(side="left", padx=12, pady=6)
+        titles = tk.Frame(header, bg="white")
+        titles.pack(side="left", padx=10)
+        tk.Label(titles, text=f"{APP_NAME} — Inventario de Proxmox VE", bg="white",
+                 font=("Segoe UI", 13, "bold"), fg="#1F4E78").pack(anchor="w")
+        tk.Label(titles, text=SHORT_NOTICE, bg="white", fg="#555", font=("Segoe UI", 9)).pack(anchor="w")
+        tk.Button(header, text="Aviso de uso", relief="flat", bg="white", fg="#1F4E78", cursor="hand2",
+                  font=("Segoe UI", 9, "underline"), command=self._show_notice).pack(side="right", padx=12)
 
         top = ttk.LabelFrame(self, text="Conexión")
         top.pack(fill="x", padx=8, pady=(8, 4))
@@ -121,6 +145,64 @@ class App(tk.Tk):
         self.status = tk.StringVar(value="Añade una conexión y pulsa Inventariar.")
         ttk.Label(self, textvariable=self.status, relief="sunken", anchor="w").pack(fill="x", side="bottom")
         self._auth_changed()
+
+    # ------------------------------------------------------------------ aviso
+    def _show_notice(self, first_run: bool = False):
+        win = tk.Toplevel(self)
+        win.title(DISCLAIMER_TITLE)
+        win.transient(self)
+        win.resizable(False, False)
+        win.configure(bg="white")
+        if "logo" in self._images:
+            tk.Label(win, image=self._images["logo"], bg="white").pack(anchor="w", padx=16, pady=(14, 4))
+        msg = tk.Message(win, text=DISCLAIMER, width=560, bg="white", font=("Segoe UI", 10))
+        msg.pack(padx=16, pady=8)
+        bar = tk.Frame(win, bg="white")
+        bar.pack(fill="x", padx=16, pady=(0, 14))
+        result = {"ok": not first_run}
+
+        def accept():
+            result["ok"] = True
+            win.destroy()
+
+        if first_run:
+            ttk.Button(bar, text="Acepto", command=accept).pack(side="right")
+            ttk.Button(bar, text="Salir", command=win.destroy).pack(side="right", padx=8)
+            win.protocol("WM_DELETE_WINDOW", win.destroy)
+        else:
+            ttk.Button(bar, text="Cerrar", command=win.destroy).pack(side="right")
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+        y = self.winfo_rooty() + 60
+        win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        win.grab_set()
+        self.wait_window(win)
+        return result["ok"]
+
+    def _first_run_notice(self):
+        settings = self._read_settings()
+        if settings.get("disclaimer_accepted") == DISCLAIMER_VERSION:
+            return
+        if not self._show_notice(first_run=True):
+            self.destroy()
+            return
+        settings["disclaimer_accepted"] = DISCLAIMER_VERSION
+        self._write_settings(settings)
+
+    def _read_settings(self) -> dict:
+        try:
+            with open(SETTINGS_FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def _write_settings(self, data: dict):
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except OSError:
+            pass
 
     def _auth_changed(self):
         tok = self.v_auth.get() == "token"

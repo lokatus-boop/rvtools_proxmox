@@ -1,8 +1,23 @@
+<img src="pvetools/assets/fsas_logo.png" alt="Fsas Technologies" height="50">
+
 # PVE Inventory: inventario de Proxmox VE al estilo RVTools
+
+> **Uso exclusivo para proyectos de Fsas Technologies.** La herramienta se ejecuta en local, solo lee de los servidores Proxmox VE que indiques y no sube nada a la nube (ver [Aviso de uso](#aviso-de-uso)).
 
 Herramienta para Windows que se conecta a la API de **Proxmox VE 8 y 9**, tanto a **clústeres** como a **nodos independientes**, y genera un inventario completo en pestañas que puedes ver en pantalla y exportar a **Excel** (una hoja por pestaña) o **CSV**. Solo lee: no modifica nada en Proxmox.
 
-![GUI](docs/vinfo.png)
+![GUI](docs/main.png)
+
+## Aviso de uso
+
+* Herramienta interna destinada exclusivamente a proyectos de Fsas Technologies; no está permitida su distribución ni su uso fuera de ese ámbito.
+* Se ejecuta íntegramente en el equipo del usuario y no sube nada a la nube. No envía datos a Fsas Technologies ni a terceros y no tiene telemetría.
+* Solo se conecta a los servidores Proxmox VE indicados, a través de su API y en modo de solo lectura.
+* No guarda contraseñas ni tokens en disco.
+* Los informes pueden contener información sensible del cliente: trátalos según la política de confidencialidad del proyecto.
+* Se proporciona "tal cual", sin garantía.
+
+El aviso se muestra al abrir la aplicación por primera vez (hay que aceptarlo), está siempre accesible desde el botón *Aviso de uso*, aparece como primera hoja (**Aviso**) de cada Excel y como `LEEME_AVISO.txt` en cada exportación CSV.
 
 ## Pestañas
 

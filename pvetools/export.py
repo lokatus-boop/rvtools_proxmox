@@ -8,6 +8,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from . import APP_NAME, __version__
+from .branding import COMPANY, DISCLAIMER, asset_path
+
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
 SEV_FILL = {"CRÍTICO": PatternFill("solid", fgColor="F8CBAD"),
@@ -26,7 +29,7 @@ def columns(rows: list[dict]) -> list[str]:
 
 def to_xlsx(sheets: dict, path: str):
     wb = Workbook()
-    wb.remove(wb.active)
+    _notice_sheet(wb.active)
     for name, rows in sheets.items():
         ws = wb.create_sheet(name[:31])
         cols = columns(rows)
@@ -55,6 +58,33 @@ def to_xlsx(sheets: dict, path: str):
     return path
 
 
+def _notice_sheet(ws):
+    """Primera hoja: logo y aviso de uso."""
+    import datetime as dt
+    ws.title = "Aviso"
+    ws.sheet_view.showGridLines = False
+    ws.column_dimensions["A"].width = 120
+    row = 1
+    try:  # el logo necesita Pillow; si no está, se omite
+        from openpyxl.drawing.image import Image as XLImage
+        img = XLImage(asset_path("fsas_logo.png"))
+        img.width, img.height = 260, 50
+        ws.add_image(img, "A1")
+        ws.row_dimensions[1].height = 45
+        row = 3
+    except Exception:  # noqa: BLE001
+        pass
+    ws.cell(row, 1, f"{APP_NAME} {__version__} — Inventario de Proxmox VE · {COMPANY}").font = Font(bold=True, size=14)
+    ws.cell(row + 1, 1, f"Generado: {dt.datetime.now():%Y-%m-%d %H:%M:%S}").font = Font(italic=True, color="666666")
+    r = row + 3
+    for line in DISCLAIMER.split("\n"):
+        c = ws.cell(r, 1, line)
+        c.alignment = Alignment(wrap_text=True, vertical="top")
+        if line.isupper():
+            c.font = Font(bold=True, color="1F4E78")
+        r += 1
+
+
 def to_csv(sheets: dict, folder: str, prefix: str = ""):
     os.makedirs(folder, exist_ok=True)
     paths = []
@@ -67,4 +97,8 @@ def to_csv(sheets: dict, folder: str, prefix: str = ""):
             w.writeheader()
             w.writerows(rows)
         paths.append(p)
+    p = os.path.join(folder, f"{prefix}LEEME_AVISO.txt")
+    with open(p, "w", encoding="utf-8-sig") as f:
+        f.write(f"{APP_NAME} {__version__} - {COMPANY}\n\n{DISCLAIMER}\n")
+    paths.append(p)
     return paths

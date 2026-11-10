@@ -13,12 +13,14 @@ import os
 import sys
 
 from . import APP_NAME, __version__
+from .branding import SHORT_NOTICE
 from .collector import Inventory
 from .export import to_csv, to_xlsx
 
 
 def build_parser():
-    p = argparse.ArgumentParser(prog="pveinventory", description=f"{APP_NAME} {__version__}: inventario de Proxmox VE 8/9 a Excel/CSV")
+    p = argparse.ArgumentParser(prog="pveinventory", description=f"{APP_NAME} {__version__}: inventario de Proxmox VE 8/9 a Excel/CSV",
+                                epilog=SHORT_NOTICE + ". Solo lectura: no modifica nada en Proxmox.")
     p.add_argument("--host", action="append", required=True,
                    help="Nodo PVE (nombre o IP, opcional :puerto). Repetible: un nodo por clúster basta; para nodos sueltos, uno por nodo")
     p.add_argument("--user", required=True, help="Usuario con realm, p. ej. root@pam o auditor@pve")
@@ -49,6 +51,7 @@ def main(argv=None):
         base["password"] = pw if pw is not None else getpass.getpass(f"Contraseña de {a.user}: ")
     conns = [{**base, "host": h} for h in a.host]
     log = (lambda m: None) if a.quiet else (lambda m: print(m, file=sys.stderr))
+    log(f"{APP_NAME} {__version__} — {SHORT_NOTICE}")
     sheets = Inventory(progress=log, query_agent=not a.no_agent).collect(conns)
     stamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     out = a.xlsx or f"pve_inventory_{stamp}.xlsx"

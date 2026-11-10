@@ -46,7 +46,7 @@ def test_cluster_and_standalone():
     assert any("95.0%" in h["Mensaje"] and h["Severidad"] == "CRÍTICO" for h in sheets["vHealth"])
     out = tempfile.mkdtemp()
     to_xlsx(sheets, os.path.join(out, "inv.xlsx"))
-    assert len(to_csv(sheets, out)) == len(sheets)
+    assert len(to_csv(sheets, out)) == len(sheets) + 1  # + LEEME_AVISO.txt
 
 
 if __name__ == "__main__":
