@@ -42,11 +42,19 @@ def cluster_data():
              "disk": 2000 * G, "maxdisk": 6000 * G, "content": "images", "shared": 1},
             {"type": "storage", "node": "pve2", "storage": "ceph-vm", "status": "available", "plugintype": "rbd",
              "disk": 2000 * G, "maxdisk": 6000 * G, "content": "images", "shared": 1},
+            {"type": "storage", "node": "pve1", "storage": "pbs", "status": "available", "plugintype": "pbs",
+             "disk": 1000 * G, "maxdisk": 4000 * G, "content": "backup", "shared": 1},
+            {"type": "storage", "node": "pve2", "storage": "pbs", "status": "available", "plugintype": "pbs",
+             "disk": 1000 * G, "maxdisk": 4000 * G, "content": "backup", "shared": 1},
         ],
         "storage": [
             {"storage": "local-lvm", "type": "lvmthin", "vgname": "pve", "thinpool": "data", "content": "images,rootdir"},
             {"storage": "ceph-vm", "type": "rbd", "pool": "vm", "content": "images", "shared": 1},
+            {"storage": "pbs", "type": "pbs", "server": "10.0.0.50", "datastore": "store1", "content": "backup"},
         ],
+        "nodes/pve1/storage/pbs/content": [
+            {"volid": "pbs:backup/vm/100/2026-11-09T21:00:00Z", "vmid": 100, "ctime": NOW - 86400, "size": 5 * G, "verification": {"state": "ok"}},
+            {"volid": "pbs:backup/vm/101/2026-10-01T21:00:00Z", "vmid": 101, "ctime": NOW - 86400 * 40, "size": 50 * G}],
         "cluster/ha/resources": [{"sid": "vm:101", "state": "started", "max_restart": 1, "max_relocate": 1}],
         "cluster/backup": [{"id": "backup-daily", "enabled": 1, "schedule": "21:00", "storage": "pbs", "mode": "snapshot",
                             "all": 1, "exclude": "9000", "prune-backups": "keep-daily=7"}],
@@ -70,7 +78,52 @@ def cluster_data():
             {"iface": "bond0", "type": "bond", "active": 1, "slaves": "eno1 eno2", "bond_mode": "802.3ad"},
             {"iface": "eno1", "type": "eth", "active": 1}, {"iface": "eno2", "type": "eth", "active": 1},
         ],
-        "nodes/pve2/network": [{"iface": "vmbr0", "type": "bridge", "active": 1, "cidr": "10.0.0.12/24", "bridge_ports": "eno1"}],
+        "nodes/pve2/network": [{"iface": "vmbr0", "type": "bridge", "active": 1, "cidr": "10.0.0.12/24", "bridge_ports": "eno1"},
+                               {"iface": "eno1.50", "type": "vlan", "active": 1, "vlan-id": 50, "vlan-raw-device": "eno1", "cidr": "172.16.50.12/24"}],
+        # --- SDN, corosync, firewall, acceso
+        "cluster/sdn/zones": [{"zone": "zvlan", "type": "vlan", "bridge": "vmbr0"}, {"zone": "zempty", "type": "simple"}],
+        "cluster/sdn/vnets": [{"vnet": "vnet100", "zone": "zvlan", "tag": 100, "alias": "dmz"}],
+        "cluster/sdn/vnets/vnet100/subnets": [{"cidr": "192.168.100.0/24", "gateway": "192.168.100.1", "snat": 1}],
+        "cluster/config/totem": {"cluster_name": "CLU-PROD", "config_version": 5, "link_mode": "passive", "secauth": "on"},
+        "cluster/config/nodes": [{"name": "pve1", "nodeid": 1, "quorum_votes": 1, "ring0_addr": "10.0.0.11"},
+                                 {"name": "pve2", "nodeid": 2, "quorum_votes": 1, "ring0_addr": "10.0.0.12"}],
+        "cluster/firewall/options": {"enable": 0, "policy_in": "DROP"},
+        "cluster/firewall/rules": [{"pos": 0, "type": "in", "action": "ACCEPT", "macro": "SSH", "source": "+mgmt", "enable": 1}],
+        "cluster/firewall/groups": [{"group": "web", "comment": "HTTP"}],
+        "cluster/firewall/groups/web": [{"pos": 0, "type": "in", "action": "ACCEPT", "proto": "tcp", "dport": "80,443", "enable": 1}],
+        "cluster/firewall/aliases": [{"name": "gw", "cidr": "10.0.0.1"}],
+        "cluster/firewall/ipset": [{"name": "mgmt"}],
+        "cluster/firewall/ipset/mgmt": [{"cidr": "10.0.0.0/24"}],
+        "access/users": [{"userid": "root@pam", "enable": 1, "realm-type": "pam"},
+                         {"userid": "auditor@pve", "enable": 1, "realm-type": "pve", "tokens": [{"tokenid": "inv", "privsep": 0}]}],
+        "access/acl": [{"path": "/", "type": "user", "ugid": "auditor@pve", "roleid": "PVEAuditor", "propagate": 1}],
+        # --- Ceph y discos
+        "cluster/ceph/status": {"health": {"status": "HEALTH_WARN", "checks": {"OSD_NEARFULL": {"summary": {"message": "1 nearfull osd(s)"}}}}},
+        "nodes/pve1/ceph/osd": {"root": {"type": "root", "name": "default", "children": [
+            {"type": "host", "name": "pve1", "children": [{"type": "osd", "name": "osd.0", "id": 0, "status": "up", "in": 1, "device_class": "ssd",
+                                                          "total_space": 1000 * G, "bytes_used": 850 * G, "percent_used": 85.0}]},
+            {"type": "host", "name": "pve2", "children": [{"type": "osd", "name": "osd.1", "id": 1, "status": "down", "in": 0, "device_class": "ssd"}]}]}},
+        "nodes/pve1/ceph/pool": [{"pool_name": "vm", "size": 3, "min_size": 2, "pg_num": 128, "pg_autoscale_mode": "on",
+                                  "bytes_used": 2000 * G, "percent_used": 0.33, "application_metadata": {"rbd": {}}}],
+        "nodes/pve1/disks/list": [{"devpath": "/dev/sda", "type": "ssd", "model": "SAMSUNG MZ7", "serial": "S1", "size": 480 * G,
+                                   "health": "PASSED", "wearout": 85, "used": "LVM"},
+                                  {"devpath": "/dev/sdb", "type": "hdd", "model": "ST4000", "size": 4000 * G, "health": "FAILED", "wearout": "N/A"}],
+        "nodes/pve2/disks/zfs": [{"name": "rpool", "size": 100 * G, "alloc": 90 * G, "free": 10 * G, "frag": 30, "dedup": 1.0, "health": "DEGRADED"}],
+        # --- mantenimiento
+        "nodes/pve1/apt/repositories": {"standard-repos": [{"handle": "enterprise", "name": "Enterprise", "status": 1},
+                                                           {"handle": "no-subscription", "name": "No-Subscription", "status": 0}]},
+        "nodes/pve2/apt/repositories": {"standard-repos": [{"handle": "enterprise", "name": "Enterprise", "status": 1},
+                                                           {"handle": "test", "name": "Test", "status": 1}]},
+        "nodes/pve1/apt/update": [],
+        "nodes/pve2/apt/update": [{"Package": "pve-manager"}, {"Package": "qemu-server"}],
+        "nodes/pve1/dns": {"search": "lab", "dns1": "10.0.0.1"},
+        "nodes/pve1/time": {"timezone": "Europe/Madrid"},
+        "nodes/pve1/certificates/info": [{"filename": "pve-ssl.pem", "subject": "CN=pve1", "issuer": "CN=PVE CA",
+                                          "notbefore": NOW - 86400 * 700, "notafter": NOW + 86400 * 10,
+                                          "fingerprint": "AA:BB:CC", "san": ["pve1", "10.0.0.11"]}],
+        "nodes/pve2/certificates/info": [{"filename": "pve-ssl.pem", "subject": "CN=pve2", "notafter": NOW + 86400 * 700, "fingerprint": "DD:EE:FF"}],
+        "cluster/tasks": [{"node": "pve1", "type": "vzdump", "id": "", "user": "root@pam", "starttime": NOW - 3600, "endtime": NOW - 3000, "status": "job errors"},
+                          {"node": "pve1", "type": "qmstart", "id": "100", "user": "root@pam", "starttime": NOW - 600, "endtime": NOW - 590, "status": "OK"}],
         # --- invitados
         "nodes/pve1/qemu/100/config": {"name": "web01", "sockets": 1, "cores": 4, "memory": "4096", "ostype": "l26", "agent": "1",
                                        "scsi0": "ceph-vm:vm-100-disk-0,iothread=1,size=32G,ssd=1", "ide2": "local:iso/debian-12.iso,media=cdrom",
@@ -87,7 +140,8 @@ def cluster_data():
         "nodes/pve2/qemu/101/config": {"name": "db01", "sockets": 2, "cores": 4, "memory": 16384, "balloon": 8192, "ostype": "win11",
                                        "agent": "enabled=1,fstrim_cloned_disks=1", "lock": "backup",
                                        "virtio0": "ceph-vm:vm-101-disk-0,size=100G", "unused0": "local-lvm:vm-101-disk-9",
-                                       "net0": "e1000=BC:24:11:AA:BB:02,bridge=vmbr0", "net1": "virtio=BC:24:11:AA:BB:03,bridge=vmbr1,link_down=1"},
+                                       "net0": "e1000=BC:24:11:AA:BB:02,bridge=vmbr0", "net1": "virtio=BC:24:11:AA:BB:03,bridge=vmbr1,link_down=1",
+                                       "hostpci0": "0000:41:00.0,pcie=1", "cpu": "host"},
         # agente de 101 no responde -> 500
         "nodes/pve2/qemu/101/snapshot": [{"name": "current"}],
         "nodes/pve2/qemu/9000/config": {"name": "tpl-debian", "template": 1, "cores": 2, "memory": 2048,
@@ -131,6 +185,43 @@ def standalone_data():
     }
 
 
+def target_data():
+    """Clúster de destino para el planificador de migración (PVE 9, Intel)."""
+    return {
+        "version": {"version": "9.1.1", "release": "9.1"},
+        "cluster/status": [
+            {"type": "cluster", "name": "CLU-NEW", "quorate": 1, "nodes": 2, "version": 3},
+            {"type": "node", "name": "new1", "ip": "10.1.0.21", "online": 1},
+            {"type": "node", "name": "new2", "ip": "10.1.0.22", "online": 1},
+        ],
+        "nodes": [{"node": "new1"}, {"node": "new2"}],
+        "cluster/resources": [
+            {"type": "node", "node": "new1", "status": "online", "cpu": 0.01, "maxcpu": 64, "mem": 10 * G, "maxmem": 256 * G, "uptime": 1000},
+            {"type": "node", "node": "new2", "status": "online", "cpu": 0.01, "maxcpu": 64, "mem": 200 * G, "maxmem": 256 * G, "uptime": 1000},
+            {"type": "qemu", "node": "new1", "vmid": 100, "name": "ya-existe", "status": "running", "maxmem": 2 * G},
+            {"type": "storage", "node": "new1", "storage": "local-zfs", "status": "available", "plugintype": "zfspool",
+             "disk": 100 * G, "maxdisk": 1000 * G, "content": "images,rootdir", "shared": 0},
+            {"type": "storage", "node": "new2", "storage": "local-zfs", "status": "available", "plugintype": "zfspool",
+             "disk": 100 * G, "maxdisk": 1000 * G, "content": "images,rootdir", "shared": 0},
+            {"type": "storage", "node": "new1", "storage": "pbs-new", "status": "available", "plugintype": "pbs",
+             "disk": 1000 * G, "maxdisk": 4000 * G, "content": "backup", "shared": 1},
+        ],
+        "storage": [{"storage": "local-zfs", "type": "zfspool", "pool": "rpool/data", "content": "images,rootdir"},
+                    {"storage": "pbs-new", "type": "pbs", "server": "10.0.0.50", "datastore": "store1", "content": "backup"}],
+        "nodes/new1/status": {"cpuinfo": {"model": "Intel Xeon Gold 6338", "sockets": 2, "cores": 32, "cpus": 64},
+                              "memory": {"total": 256 * G, "used": 10 * G}},
+        "nodes/new2/status": {"cpuinfo": {"model": "Intel Xeon Gold 6338", "sockets": 2, "cores": 32, "cpus": 64},
+                              "memory": {"total": 256 * G, "used": 200 * G}},
+        "nodes/new1/version": {"version": "9.1.1"}, "nodes/new2/version": {"version": "9.1.1"},
+        "nodes/new1/network": [{"iface": "vmbr0", "type": "bridge", "active": 1, "bridge_ports": "eno1", "bridge_vlan_aware": 1}],
+        "nodes/new2/network": [{"iface": "vmbr0", "type": "bridge", "active": 1, "bridge_ports": "eno1", "bridge_vlan_aware": 1}],
+        "nodes/new1/certificates/info": [{"filename": "pve-ssl.pem", "fingerprint": "11:22:33", "notafter": NOW + 86400 * 700}],
+        "nodes/new2/certificates/info": [{"filename": "pve-ssl.pem", "fingerprint": "44:55:66", "notafter": NOW + 86400 * 700}],
+        "nodes/new1/qemu/100/config": {"name": "ya-existe", "memory": 2048},
+        "nodes/new1/qemu/100/snapshot": [{"name": "current"}],
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     data = {}
     TOKEN = "PVEAPIToken=auditor@pve!inv=secret"
@@ -169,7 +260,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port, scen, cert, key = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
-    Handler.data = cluster_data() if scen == "cluster" else standalone_data()
+    Handler.data = {"cluster": cluster_data, "standalone": standalone_data, "target": target_data}[scen]()
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(cert, key)

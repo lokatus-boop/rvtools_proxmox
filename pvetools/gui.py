@@ -11,7 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, DISCLAIMER_TITLE, DISCLAIMER_VERSION, SHORT_NOTICE, asset_path
-from .collector import SHEETS, Inventory
+from .collector import SHEET_GROUPS, SHEETS, Inventory
 from .export import columns, to_csv, to_xlsx
 
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"), "PVEInventory")
@@ -27,6 +27,7 @@ class App(tk.Tk):
         self.minsize(900, 560)
         self.connections: list[dict] = []  # los secretos solo se guardan en memoria
         self.sheets: dict = {}
+        self.inv = None
         self.msgs: queue.Queue = queue.Queue()
         self._build()
         self._load_saved()
@@ -105,7 +106,8 @@ class App(tk.Tk):
         self.btn_run.pack(side="left", padx=16)
         ttk.Button(btns, text="Exportar Excel…", command=self._export_xlsx).pack(side="left", padx=4)
         ttk.Button(btns, text="Exportar CSV…", command=self._export_csv).pack(side="left", padx=4)
-        ttk.Label(btns, text="Un nodo por clúster es suficiente; añade cada nodo independiente por separado.",
+        ttk.Button(btns, text="Planificar migración…", command=self._migration).pack(side="left", padx=16)
+        ttk.Label(btns, text="Un nodo por clúster basta; los nodos sueltos, uno a uno.",
                   foreground="#555").pack(side="right", padx=4)
         r += 1
         self.conn_list = ttk.Treeview(top, columns=("host", "user", "auth"), show="headings", height=3)
@@ -117,40 +119,84 @@ class App(tk.Tk):
         for i in (1, 3):
             top.columnconfigure(i, weight=1)
 
-        self.nb = ttk.Notebook(self)
-        self.nb.pack(fill="both", expand=True, padx=8, pady=4)
+        paned = ttk.PanedWindow(self, orient="horizontal")
+        paned.pack(fill="both", expand=True, padx=8, pady=4)
+        navf = ttk.Frame(paned)
+        self.nav = ttk.Treeview(navf, show="tree", selectmode="browse")
+        self.nav.column("#0", width=210)
+        nys = ttk.Scrollbar(navf, orient="vertical", command=self.nav.yview)
+        self.nav.configure(yscrollcommand=nys.set)
+        self.nav.pack(side="left", fill="both", expand=True)
+        nys.pack(side="right", fill="y")
+        self.nav.bind("<<TreeviewSelect>>", self._nav_select)
+        self.content = ttk.Frame(paned)
+        self.content.rowconfigure(0, weight=1)
+        self.content.columnconfigure(0, weight=1)
+        paned.add(navf, weight=0)
+        paned.add(self.content, weight=1)
         self.tabs = {}
-        for name in SHEETS:
-            frame = ttk.Frame(self.nb)
-            self.nb.add(frame, text=name)
-            bar = ttk.Frame(frame)
-            bar.pack(fill="x")
-            ttk.Label(bar, text="Filtro:").pack(side="left", padx=4, pady=2)
-            fv = tk.StringVar()
-            ent = ttk.Entry(bar, textvariable=fv, width=40)
-            ent.pack(side="left")
-            count = ttk.Label(bar, text="")
-            count.pack(side="left", padx=10)
-            holder = ttk.Frame(frame)
-            holder.pack(fill="both", expand=True)
-            tree = ttk.Treeview(holder, show="headings")
-            ys = ttk.Scrollbar(holder, orient="vertical", command=tree.yview)
-            xs = ttk.Scrollbar(holder, orient="horizontal", command=tree.xview)
-            tree.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
-            tree.grid(row=0, column=0, sticky="nsew")
-            ys.grid(row=0, column=1, sticky="ns")
-            xs.grid(row=1, column=0, sticky="we")
-            holder.rowconfigure(0, weight=1)
-            holder.columnconfigure(0, weight=1)
-            tree.tag_configure("CRÍTICO", background="#F8CBAD")
-            tree.tag_configure("AVISO", background="#FFE699")
-            tree.tag_configure("INFO", background="#DDEBF7")
-            self.tabs[name] = {"tree": tree, "filter": fv, "count": count, "sort": (None, False)}
-            fv.trace_add("write", lambda *_a, n=name: self._fill(n))
+        for group, names in SHEET_GROUPS:
+            gid = self.nav.insert("", "end", text=group, open=True)
+            for name in names:
+                self._make_sheet(name, gid)
+        self._show_sheet("vInfo")
 
         self.status = tk.StringVar(value="Añade una conexión y pulsa Inventariar.")
         ttk.Label(self, textvariable=self.status, relief="sunken", anchor="w").pack(fill="x", side="bottom")
         self._auth_changed()
+
+    # ------------------------------------------------------------------ hojas
+    def _make_sheet(self, name, parent_id, data_key=None):
+        frame = ttk.Frame(self.content)
+        frame.grid(row=0, column=0, sticky="nsew")
+        bar = ttk.Frame(frame)
+        bar.pack(fill="x")
+        title = ttk.Label(bar, text=name, font=("Segoe UI", 11, "bold"))
+        title.pack(side="left", padx=(4, 12), pady=2)
+        ttk.Label(bar, text="Filtro:").pack(side="left", padx=4, pady=2)
+        fv = tk.StringVar()
+        ttk.Entry(bar, textvariable=fv, width=40).pack(side="left")
+        count = ttk.Label(bar, text="")
+        count.pack(side="left", padx=10)
+        holder = ttk.Frame(frame)
+        holder.pack(fill="both", expand=True)
+        tree = ttk.Treeview(holder, show="headings")
+        ys = ttk.Scrollbar(holder, orient="vertical", command=tree.yview)
+        xs = ttk.Scrollbar(holder, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        ys.grid(row=0, column=1, sticky="ns")
+        xs.grid(row=1, column=0, sticky="we")
+        holder.rowconfigure(0, weight=1)
+        holder.columnconfigure(0, weight=1)
+        for tag, color in (("CRÍTICO", "#F8CBAD"), ("BLOQUEO", "#F8CBAD"), ("BLOQUEADA", "#F8CBAD"), ("NO CABE", "#F8CBAD"),
+                           ("AVISO", "#FFE699"), ("Con avisos", "#FFE699"), ("INFO", "#DDEBF7"), ("OK", "#E2EFDA")):
+            tree.tag_configure(tag, background=color)
+        nav_id = self.nav.insert(parent_id, "end", text=name, values=(name,))
+        self.tabs[name] = {"tree": tree, "filter": fv, "count": count, "sort": (None, False), "frame": frame,
+                           "nav": nav_id, "key": data_key or name}
+        fv.trace_add("write", lambda *_a, n=name: self._fill(n))
+
+    def _show_sheet(self, name):
+        t = self.tabs.get(name)
+        if not t:
+            return
+        t["frame"].tkraise()
+        if self.nav.selection() != (t["nav"],):
+            self.nav.selection_set(t["nav"])
+            self.nav.see(t["nav"])
+
+    def _nav_select(self, _e=None):
+        sel = self.nav.selection()
+        if sel:
+            vals = self.nav.item(sel[0], "values")
+            if vals:
+                self._show_sheet(vals[0])
+
+    def _update_nav_counts(self):
+        for name, t in self.tabs.items():
+            n = len(self.sheets.get(t["key"], []))
+            self.nav.item(t["nav"], text=f"{name} ({n})" if n else name)
 
     # ------------------------------------------------------------------ aviso
     def _show_notice(self, first_run: bool = False):
@@ -304,8 +350,9 @@ class App(tk.Tk):
 
         def worker():
             try:
-                sheets = Inventory(progress=lambda m: self.msgs.put(("status", m)), query_agent=agent).collect(conns)
-                self.msgs.put(("done", sheets))
+                inv = Inventory(progress=lambda m: self.msgs.put(("status", m)), query_agent=agent)
+                inv.collect(conns)
+                self.msgs.put(("done", (inv, inv.sheets)))
             except Exception as e:  # noqa: BLE001
                 self.msgs.put(("error", str(e)))
 
@@ -318,16 +365,18 @@ class App(tk.Tk):
                 if kind == "status":
                     self.status.set(payload)
                 elif kind == "done":
-                    self.sheets = payload
+                    self.inv, self.sheets = payload
                     for n in SHEETS:
                         self._fill(n)
+                    self._update_nav_counts()
+                    payload = self.sheets
                     errs = [s for s in payload["vSource"] if str(s.get("Estado", "")).startswith("ERROR")]
                     vms = len(payload["vInfo"])
                     self.status.set(f"Inventario completado: {vms} VMs/CTs, {len(payload['vHost'])} nodos"
                                     + (f" — {len(errs)} conexión(es) con error (ver vSource)" if errs else ""))
                     self.btn_run.configure(state="normal")
                     if errs:
-                        self.nb.select(SHEETS.index("vSource"))
+                        self._show_sheet("vSource")
                 elif kind == "error":
                     self.status.set("Error: " + payload)
                     messagebox.showerror(APP_NAME, payload)
@@ -340,7 +389,7 @@ class App(tk.Tk):
     def _fill(self, name):
         t = self.tabs[name]
         tree = t["tree"]
-        rows = self.sheets.get(name, [])
+        rows = self.sheets.get(t["key"], [])
         cols = columns(rows)
         tree.delete(*tree.get_children())
         tree["columns"] = cols
@@ -357,9 +406,9 @@ class App(tk.Tk):
             vals = ["" if r.get(c) is None else r.get(c) for c in cols]
             if f and f not in " ".join(str(v) for v in vals).lower():
                 continue
-            tree.insert("", "end", values=vals, tags=(r.get("Severidad", ""),))
+            tree.insert("", "end", values=vals, tags=(str(r.get("Severidad") or r.get("Resultado") or ""),))
             shown += 1
-        t["count"].configure(text=f"{shown} de {len(self.sheets.get(name, []))} filas")
+        t["count"].configure(text=f"{shown} de {len(self.sheets.get(t['key'], []))} filas")
 
     def _sort(self, name, col):
         prev, rev = self.tabs[name]["sort"]
@@ -392,6 +441,29 @@ class App(tk.Tk):
         if d:
             to_csv(self.sheets, d)
             self.status.set(f"CSV guardados en {d}")
+
+
+    # ------------------------------------------------------------------ migración
+    def _migration(self):
+        if not self.inv or not self.inv.sheets.get("vInfo"):
+            messagebox.showinfo(APP_NAME, "Primero inventaría el entorno de origen.")
+            return
+        from .migration_gui import MigrationDialog
+        MigrationDialog(self, self.inv)
+
+    def show_migration_plan(self, plan):
+        """Carga el plan en el panel lateral (grupo Migración)."""
+        self.sheets["Plan migración"] = plan.rows
+        self.sheets["Comprobaciones"] = plan.checks
+        self.sheets["Capacidad destino"] = plan.capacity
+        if "Plan migración" not in self.tabs:
+            gid = self.nav.insert("", 0, text="Migración", open=True)
+            for name in ("Plan migración", "Comprobaciones", "Capacidad destino"):
+                self._make_sheet(name, gid)
+        for name in ("Plan migración", "Comprobaciones", "Capacidad destino"):
+            self._fill(name)
+        self._update_nav_counts()
+        self._show_sheet("Plan migración")
 
 
 def _sort_key(v):

@@ -10,11 +10,25 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from . import __version__
+from . import extras
 from .api import PVEClient, PVEError, q
 
-SHEETS = ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot",
-          "vHost", "vHostNIC", "vDatastore", "vCluster", "vHA", "vBackup",
-          "vReplication", "vHealth", "vSource"]
+SHEETS = ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough",
+          "vBackupStatus", "vHost", "vHostNIC", "vBond", "vBridge", "vHostVLAN", "vSDN", "vCorosync",
+          "vDatastore", "vPhysicalDisk", "vZFS", "vCephOSD", "vCephPool", "vCluster", "vHA", "vBackup",
+          "vReplication", "vFirewall", "vFirewallObj", "vUsers", "vACL", "vRepo", "vCert", "vTasks",
+          "vHealth", "vSource"]
+
+# Agrupación para la navegación de la GUI
+SHEET_GROUPS = [
+    ("Máquinas virtuales", ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough", "vBackupStatus"]),
+    ("Hosts", ["vHost", "vPhysicalDisk", "vRepo", "vCert"]),
+    ("Red", ["vHostNIC", "vBond", "vBridge", "vHostVLAN", "vSDN", "vCorosync"]),
+    ("Almacenamiento", ["vDatastore", "vZFS", "vCephOSD", "vCephPool"]),
+    ("Clúster", ["vCluster", "vHA", "vBackup", "vReplication", "vTasks"]),
+    ("Seguridad", ["vFirewall", "vFirewallObj", "vUsers", "vACL"]),
+    ("Resumen", ["vHealth", "vSource"]),
+]
 
 SNAPSHOT_AGE_WARN_DAYS = 7
 STORAGE_WARN, STORAGE_CRIT = 80, 90
@@ -101,6 +115,11 @@ class Inventory:
         self.workers = workers
         self._seen_clusters: set[str] = set()
         self._seen_nodes: set[str] = set()
+        self._dc_firewall: dict = {}
+        self._ceph: dict = {}
+        # datos en bruto para el planificador de migración: (clúster, vmid) -> dict
+        self.raw: dict = {}
+        self.raw_storage_cfg: dict = {}
 
     # ---------------------------------------------------------------- entrada
     def collect(self, connections: list[dict]):
@@ -165,6 +184,19 @@ class Inventory:
         self._ha(api, label, ha)
         self._backup(api, label)
         self._replication(api, label)
+        steps = [("SDN", lambda: extras.sdn(self, api, label)),
+                 ("corosync", lambda: extras.corosync(self, api, label, bool(cl))),
+                 ("firewall", lambda: extras.firewall(self, api, label, nodes)),
+                 ("usuarios y permisos", lambda: extras.access(self, api, label)),
+                 ("Ceph", lambda: extras.ceph(self, api, label, nodes)),
+                 ("estado de backups", lambda: extras.backup_status(self, api, label, storages, guest_rows)),
+                 ("tareas", lambda: extras.tasks(self, api, label))]
+        for name, fn in steps:
+            self.progress(f"{label}: {name}…")
+            try:
+                fn()
+            except Exception as e:  # noqa: BLE001 - una sección opcional nunca aborta el inventario
+                self.progress(f"{label}: no se pudo leer {name}: {e}")
         return label, False
 
     # ---------------------------------------------------------------- VMs y CTs
@@ -195,7 +227,24 @@ class Inventory:
         running = g.get("status") == "running"
         name = g.get("name") or cfg.get("name") or cfg.get("hostname")
         key = {"Clúster": label, "Nodo": node, "VMID": vmid, "Nombre": name, "Tipo": "VM" if kind == "qemu" else "CT"}
-        out = {s: [] for s in ("vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot")}
+        out = {s: [] for s in ("vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough")}
+        self.raw[(label, vmid)] = {"node": node, "type": kind, "config": cfg, "resource": g}
+        for k in sorted(cfg):
+            ptype = "PCI" if re.match(r"^hostpci\d+$", k) else "USB" if re.match(r"^usb\d+$", k) else \
+                "Serie" if re.match(r"^serial\d+$", k) else "Dispositivo LXC" if re.match(r"^dev\d+$", k) else None
+            if not ptype:
+                continue
+            d = parse_kv(cfg[k], first_key="host")
+            dev = d.get("host") or d.get("path") or cfg[k]
+            mapped = "mapping" in d
+            out["vPassthrough"].append({
+                "Clúster": label, "Nodo": node, "VMID": vmid, "Nombre": g.get("name") or cfg.get("name") or cfg.get("hostname"),
+                "Tipo VM": "VM" if kind == "qemu" else "CT", "Clave": k, "Tipo": ptype,
+                "Dispositivo": d.get("mapping") or dev, "Mapeado": "Sí" if mapped else ("N/A" if ptype == "Serie" else "No"),
+                "PCIe": flag(d.get("pcie")) if ptype == "PCI" else None, "ROM-Bar": d.get("rombar"),
+                "GPU principal": flag(d.get("x-vga")) if ptype == "PCI" else None, "Config": cfg[k],
+            })
+        fw = api.try_get(f"{base}/firewall/options", {}) if g.get("status") != "unknown" else {}
 
         # --- agente / interfaces del invitado
         guest_os = hostname = None
@@ -312,6 +361,8 @@ class Inventory:
             "Sin privilegios": flag(cfg.get("unprivileged")) if kind == "lxc" else None,
             "Protección": flag(cfg.get("protection")), "Bloqueo": cfg.get("lock") or g.get("lock"),
             "Creada": ts(meta.get("ctime")),
+            "Firewall VM": flag(fw.get("enable")) if fw else None,
+            "Passthrough": len(out["vPassthrough"]) or None,
             "Descripción": (cfg.get("description") or "").strip().splitlines()[0][:200] if cfg.get("description") else None,
         })
         out["vCPU"].append({
@@ -373,7 +424,11 @@ class Inventory:
                 "Suscripción": sub.get("status"), "Nivel suscripción": sub.get("level"),
             })
             if online:
-                for i in sorted(api.try_get(f"nodes/{q(name)}/network", []) or [], key=lambda x: x.get("iface", "")):
+                ifaces = api.try_get(f"nodes/{q(name)}/network", []) or []
+                extras.network(self, label, name, ifaces)
+                extras.node_hardware(self, api, label, name)
+                extras.node_maintenance(self, api, label, name, self.sheets["vHost"][-1])
+                for i in sorted(ifaces, key=lambda x: x.get("iface", "")):
                     self.sheets["vHostNIC"].append({
                         "Clúster": label, "Nodo": name, "Interfaz": i.get("iface"), "Tipo": i.get("type"),
                         "Activa": flag(i.get("active")), "Autostart": flag(i.get("autostart")),
@@ -388,6 +443,7 @@ class Inventory:
     # ---------------------------------------------------------------- almacenamiento
     def _storages(self, api, label, storages):
         cfg = {s.get("storage"): s for s in api.try_get("storage", []) or []}
+        self.raw_storage_cfg[label] = cfg
         for s in sorted(storages, key=lambda x: (x.get("storage", ""), x.get("node", ""))):
             c = cfg.get(s.get("storage"), {})
             self.sheets["vDatastore"].append({
@@ -534,5 +590,6 @@ class Inventory:
         for label, g in getattr(self, "_not_backed_up", []):
             add("AVISO", label, f"{'VM' if g.get('type') == 'qemu' else 'CT'} {g.get('vmid')} {g.get('name') or ''}".strip(),
                 "No está incluida en ningún job de backup")
+        extras.health(self, add)
         order = {"CRÍTICO": 0, "AVISO": 1, "INFO": 2}
         h.sort(key=lambda r: (order.get(r["Severidad"], 9), r["Clúster"] or "", r["Objeto"]))
