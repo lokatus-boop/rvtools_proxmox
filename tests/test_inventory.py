@@ -1,0 +1,54 @@
+"""Prueba de extremo a extremo contra el Proxmox simulado. Ejecutar: python -m pytest tests  (o python tests/test_inventory.py)"""
+import os
+import ssl
+import subprocess
+import sys
+import tempfile
+import threading
+from http.server import ThreadingHTTPServer
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(__file__))
+os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost"
+
+import mock_pve  # noqa: E402
+from pvetools.collector import Inventory  # noqa: E402
+from pvetools.export import to_csv, to_xlsx  # noqa: E402
+
+
+def serve(data):
+    d = tempfile.mkdtemp()
+    cert, key = os.path.join(d, "c.pem"), os.path.join(d, "k.pem")
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert,
+                    "-days", "1", "-subj", "/CN=localhost"], check=True, capture_output=True)
+    handler = type("H", (mock_pve.Handler,), {"data": data})
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(cert, key)
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return f"127.0.0.1:{srv.server_address[1]}"
+
+
+def test_cluster_and_standalone():
+    clu, sa = serve(mock_pve.cluster_data()), serve(mock_pve.standalone_data())
+    tok = {"user": "auditor@pve", "token_id": "inv", "token_secret": "secret"}
+    sheets = Inventory(query_agent=True).collect([
+        {**tok, "host": clu}, {**tok, "host": clu},                      # duplicado -> se omite
+        {"host": sa, "user": "root@pam", "password": "pw"},              # login por contraseña
+        {"host": "127.0.0.1:1", "user": "root@pam", "password": "pw"},   # host caído -> error controlado
+    ])
+    assert len(sheets["vInfo"]) == 5
+    assert {c["Tipo"] for c in sheets["vCluster"]} == {"Clúster", "Nodo independiente"}
+    assert [s["Estado"].split()[0] for s in sheets["vSource"]] == ["OK", "Omitido", "OK", "ERROR:"]
+    web = next(v for v in sheets["vInfo"] if v["Nombre"] == "web01")
+    assert web["IPs"] == "10.20.0.5" and web["vCPU"] == 4 and web["Snapshots"] == 1
+    assert any("95.0%" in h["Mensaje"] and h["Severidad"] == "CRÍTICO" for h in sheets["vHealth"])
+    out = tempfile.mkdtemp()
+    to_xlsx(sheets, os.path.join(out, "inv.xlsx"))
+    assert len(to_csv(sheets, out)) == len(sheets)
+
+
+if __name__ == "__main__":
+    test_cluster_and_standalone()
+    print("OK")
