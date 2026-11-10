@@ -13,6 +13,7 @@ from docx.shared import Cm, Pt, RGBColor
 
 from .branding import COMPANY, asset_path
 from .charts import all_charts
+from .network import USO_LABEL
 from .scenario import PBS_VERSIONS, STORAGE_TYPES
 
 BRAND = RGBColor(0x1F, 0x4E, 0x78)
@@ -37,8 +38,11 @@ def _fmt(v):
 
 
 class Doc:
-    def __init__(self, plan):
+    TITLE = "Plan de migración a Proxmox VE"
+
+    def __init__(self, plan, client=None):
         self.plan = plan
+        self.client = client if client is not None else (plan.sc.get("cliente") if plan else "") or ""
         self.d = Document()
         st = self.d.styles["Normal"]
         st.font.name = "Calibri"
@@ -62,7 +66,7 @@ class Doc:
             hp.add_run().add_picture(asset_path("fsas_logo_small.png"), height=Cm(0.8))
         except Exception:  # noqa: BLE001
             hp.add_run(COMPANY).bold = True
-        r = hp.add_run(f"\t\tPlan de migración a Proxmox VE · {self.plan.sc.get('cliente') or ''}")
+        r = hp.add_run(f"\t\t{self.TITLE} · {self.client}")
         r.font.size, r.font.color.rgb = Pt(8), GREY
         fp = sec.footer.paragraphs[0]
         fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -151,10 +155,60 @@ class Doc:
 
     def img(self, charts, key, width=16, caption=None):
         if key in charts:
+            self.nfig = getattr(self, "nfig", 0) + 1
+            caption = f"Figura {self.nfig}. {caption}" if caption else None
             self.d.add_picture(charts[key], width=Cm(width))
             self.d.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
             if caption:
                 self.p(caption, italic=True, size=8.5, color=GREY, align=WD_ALIGN_PARAGRAPH.CENTER)
+
+    def orientation(self, landscape):
+        from docx.enum.section import WD_ORIENT, WD_SECTION
+        cur = self.d.sections[-1]
+        sec = self.d.add_section(WD_SECTION.NEW_PAGE)
+        w, h = cur.page_width, cur.page_height
+        if landscape and w < h or not landscape and w > h:
+            sec.page_width, sec.page_height = h, w
+        sec.orientation = WD_ORIENT.LANDSCAPE if landscape else WD_ORIENT.PORTRAIT
+        sec.different_first_page_header_footer = False
+        return sec
+
+    def cover(self, title, subtitle, lines, note):
+        try:
+            self.d.add_picture(asset_path("fsas_logo.png"), width=Cm(7))
+        except Exception:  # noqa: BLE001
+            self.p(COMPANY, bold=True, size=20, color=BRAND)
+        for _ in range(5):
+            self.d.add_paragraph()
+        self.p(title, bold=True, size=24, color=BRAND)
+        self.p(subtitle, size=14, color=GREY)
+        self.d.add_paragraph()
+        for ln in lines:
+            self.p(ln, size=12)
+        for _ in range(6):
+            self.d.add_paragraph()
+        self.p(note, italic=True, size=8.5, color=GREY)
+        self.page_break()
+
+    def code(self, text, size=8):
+        par = self.d.add_paragraph()
+        par.paragraph_format.left_indent = Cm(0.4)
+        r = par.add_run(text)
+        r.font.name = "Consolas"
+        r.font.size = Pt(size)
+        r._element.rPr.rFonts.set(qn("w:eastAsia"), "Consolas")
+        pPr = par._p.get_or_add_pPr()
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), "F2F2F2")
+        pPr.append(shd)
+        return par
+
+    def checklist(self, items):
+        for it in items:
+            par = self.d.add_paragraph(f"☐  {it}")
+            par.paragraph_format.left_indent = Cm(0.5)
 
     def page_break(self):
         self.d.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
@@ -218,7 +272,7 @@ class Doc:
         if not e["ok"]:
             self.p("Atención: el hardware indicado no cubre todas las necesidades:", bold=True, color=RGBColor(0xC0, 0x00, 0x00))
             self.bullets(e["problemas"])
-        self.img(charts, "destino_arquitectura", 16.5, "Figura 1. Arquitectura propuesta")
+        self.img(charts, "destino_arquitectura", 16.5, "Arquitectura propuesta")
         self.page_break()
 
         # 2. Situación actual
@@ -230,10 +284,10 @@ class Doc:
         rows = [[r["Clúster / nodo"], r["Nodos"], r["Versión PVE"], r["VMs"], r["CTs"], r["vCPU"], r["RAM asignada (GiB)"],
                  r["Disco aprov. (GiB)"], r["Cores físicos"], r["RAM física (GiB)"]] for r in plan.an.by_cluster()]
         self.table(["Clúster / nodo", "Nodos", "PVE", "VMs", "CTs", "vCPU", "RAM asig. (GiB)", "Disco aprov. (GiB)", "Cores", "RAM física (GiB)"], rows, size=8)
-        self.img(charts, "origen_nodos", 16.5, "Figura 2. Recursos de los servidores actuales")
-        self.img(charts, "origen_so", 12.5, "Figura 3. Sistemas operativos")
-        self.img(charts, "origen_tamanos", 10.5, "Figura 4. Distribución de tamaños")
-        self.img(charts, "origen_almacenamiento", 15, "Figura 5. Almacenamiento actual")
+        self.img(charts, "origen_nodos", 16.5, "Recursos de los servidores actuales")
+        self.img(charts, "origen_so", 12.5, "Sistemas operativos")
+        self.img(charts, "origen_tamanos", 10.5, "Distribución de tamaños")
+        self.img(charts, "origen_almacenamiento", 15, "Almacenamiento actual")
         bk = plan.an.backup_summary()
         self.p(f"Copias de seguridad actuales: {bk['with_backup']} VMs/CTs con copia y {bk['without_backup']} sin copia registrada; "
                f"{bk['jobs']} trabajo(s) de backup" + (" (con Proxmox Backup Server)." if bk["uses_pbs"] else "."))
@@ -261,7 +315,7 @@ class Doc:
             ["Almacenamiento útil (TiB)", round(plan.req.data_gib / 1024, 1), round(e["almacenamiento_util_gib"] / 1024, 1),
              f"{e['alm_pct_real']:.0f} %", f"{e['alm_pct_real']:.0f} %"],
         ])
-        self.img(charts, "destino_capacidad", 15.5, "Figura 6. Ocupación prevista del nuevo entorno")
+        self.img(charts, "destino_capacidad", 15.5, "Ocupación prevista del nuevo entorno")
         if e["avisos"]:
             self.p("Observaciones:", bold=True)
             self.bullets(e["avisos"])
@@ -270,15 +324,15 @@ class Doc:
         self.h("4. Plataforma propuesta")
         if plan.options:
             self.p("Se han evaluado distintas configuraciones de servidor. La opción 1 es la recomendada por equilibrio entre "
-                   "capacidad, número de nodos y coste estimado (incluidas las suscripciones de Proxmox VE, que se licencian por socket).")
+                   "capacidad, número de nodos y número de sockets (las suscripciones de Proxmox VE se licencian por socket). "
+                   "La valoración económica se realiza aparte.")
             rows = []
             for i, o in enumerate(plan.options, 1):
                 n, ev = o["nodos"][0], o["eval"]
                 rows.append([f"{i}", f"{n.count}× {n.model}", f"{n.sockets}× {n.cores_per_socket} cores (~{n.ghz:g} GHz)", f"{n.ram_gib} GiB",
                              f"{n.data_disks}× {n.data_disk_tb:g} TB" if n.data_disks else "—",
-                             f"{ev['cpu_pct_n1']:.0f} % / {ev['ram_pct_n1']:.0f} %", ev["sockets"], o["coste_rel"]])
-            self.table(["Opción", "Nodos", "CPU por nodo", "RAM", "Discos datos", "CPU/RAM N-1", "Sockets", "Coste rel."], rows, size=8)
-            self.img(charts, "destino_opciones", 12, "Figura 7. Comparativa de opciones (coste relativo orientativo)")
+                             f"{ev['cpu_pct_n1']:.0f} % / {ev['ram_pct_n1']:.0f} %", ev["sockets"]])
+            self.table(["Opción", "Nodos", "CPU por nodo", "RAM", "Discos datos", "CPU/RAM N-1", "Sockets"], rows, size=8)
         groups = {}
         for nd in plan.nodes:
             groups.setdefault(id(nd["spec"]), [nd["spec"], 0])[1] += 1
@@ -289,21 +343,33 @@ class Doc:
                      ("Memoria por nodo", f"{spec.ram_gib} GiB"),
                      ("Arranque", spec.boot),
                      ("Discos de datos", f"{spec.data_disks}× {spec.data_disk_tb:g} TB {spec.data_disk_type}" if spec.data_disks else "No (almacenamiento externo)"),
-                     ("Red", ", ".join(f"{x['puertos']}× {x['gbps']} GbE ({x.get('uso', '')})" for x in spec.nics) + " + BMC/iRMC 1 GbE"),
+                     ("Red", ", ".join(f"{x['puertos']}× {x['gbps']:g} {'Gb FC' if x.get('uso') == 'fc' else 'GbE'} ({USO_LABEL.get(x.get('uso'), x.get('uso', ''))})"
+                             for x in spec.nics) + " + iRMC 1 GbE"),
                      ("Software", f"Proxmox VE {sc['pve_version']} con suscripción (repositorio enterprise y soporte)")])
-        self.img(charts, "destino_reparto", 15, "Figura 8. Reparto inicial de la carga entre los nodos")
+        self.img(charts, "destino_reparto", 15, "Reparto inicial de la carga entre los nodos")
         self.page_break()
 
         # 5. Red
+        net = plan.net
+        self.orientation(True)
         self.h("5. Diseño de red")
-        self.p("Cada nodo separa el tráfico por función. Los enlaces de servicio se conectan a dos switches redundantes "
-               "(MLAG o stack) para que la caída de un switch o de un puerto no afecte al servicio.")
-        self.img(charts, "destino_red_nodo", 16, "Figura 9. Conexiones de red de cada nodo")
-        self.table(["Red", "Interfaz", "Puertos", "Modo", "MTU", "Notas"],
-                   [[n["red"], n["interfaz"], n["puertos"], n["modo"], n["mtu"], n["nota"]] for n in plan.networks], size=7.5)
-        ports = plan.port_summary()
-        self.p("Puertos de switch necesarios: " + ", ".join(
-            f"{v}× {k} GbE" if k != "BMC" else f"{v}× 1 GbE para BMC/iRMC" for k, v in ports.items()) + ".")
+        self.p("Cada nodo separa el tráfico por función y reparte sus puertos entre dos switches (A/B) para que la caída de un "
+               "switch, un puerto o un cable no afecte al servicio. La gestión fuera de banda (iRMC) va a un switch independiente.")
+        self.img(charts, "destino_red", 24.5, "Esquema físico de red: switches, equipos y puertos por red")
+        self.orientation(False)
+        self.h("Switches", 3)
+        self.table(["Función", "Suministra", "Modelo", "Nº", "Puertos/switch", "Puertos necesarios", "Velocidad"],
+                   [[w["tipo"], w["suministra"], w["modelo"], w["cantidad"], w["puertos_por_switch"], w["puertos_necesarios"], w["velocidad"]]
+                    for w in net.switches], size=8)
+        if any(w["suministra"] == "Cliente" and w["modelo"] == "(por indicar)" for w in net.switches):
+            self.p("Pendiente: confirmar con el cliente el modelo de los switches que aporta, su capacidad libre y la configuración de MLAG/stack.",
+                   italic=True, color=GREY)
+        self.h("Redes lógicas", 3)
+        self.table(["Red", "VLAN", "Interfaz", "Puertos", "Modo", "MTU", "Notas"],
+                   [[n["red"], n["vlan"] or "por definir", n["interfaz"], n["puertos"], n["modo"], n["mtu"], n["nota"]] for n in plan.networks], size=7.5)
+        self.h("Puertos de cada nodo", 3)
+        self.table(["Enlace", "Adaptador", "Puerto", "Nombre", "Bond", "Uso"],
+                   [[r["Host Link"], r["Adapter"], r["Port No."], r["Device Name"], r["Bond No."], r["Usage"]] for r in net.host_ports], size=8)
         if plan.vlan_map:
             self.h("Correspondencia de redes de las VMs", 3)
             self.p("Las redes que usan hoy las VMs se recrean en el nuevo clúster con la misma VLAN, de modo que las VMs conservan "
@@ -370,7 +436,7 @@ class Doc:
                 ("Red", p["propuesta"]["red"]),
                 ("Ventana de backup", f"Primera copia completa ~{p['horas_full']:.0f} h; incrementales diarias ~{max(p['horas_incremental'], 0.1):.1f} h"),
             ])
-            self.img(charts, "pbs_capacidad", 15, "Figura 10. Ocupación estimada del datastore")
+            self.img(charts, "pbs_capacidad", 15, "Ocupación estimada del datastore")
             extra = ["Jobs de backup diarios fuera de horario, verificación semanal y prune/garbage collection automáticos.",
                      "Notificaciones por correo de errores de backup y verificación.",
                      "Restauración «live-restore»: la VM arranca mientras se restaura desde el PBS."]
@@ -402,14 +468,14 @@ class Doc:
         self.table(["Ola", "Fecha", "VMs", "vCPU", "RAM (GiB)", "Datos (TiB)", "Transferencia (h)"],
                    [[w["nombre"], w["fecha"].strftime("%d/%m/%Y") if w.get("fecha") else f"Día {w['dia']}", len(w["guests"]),
                      round(w["vcpu"]), round(w["ram"]), round(w["gib"] / 1024, 2), round(w["horas"], 1)] for w in plan.waves], size=8)
-        self.img(charts, "migracion_olas", 16, "Figura 11. Calendario de olas")
+        self.img(charts, "migracion_olas", 16, "Calendario de olas")
         self.h("Vuelta atrás", 3)
         self.p("Las VMs de origen no se eliminan hasta el cierre de cada ola: si una VM no funciona correctamente en destino, "
                "se apaga y se vuelve a arrancar la original. Los cambios de datos realizados en destino durante ese tiempo se evalúan caso a caso.")
 
         # 9. Riesgos
         self.h(f"{sec + 1}. Riesgos y puntos a revisar")
-        self.img(charts, "riesgos", 14.5, f"Figura {12 if plan.pbs else 11}. Puntos a revisar por categoría")
+        self.img(charts, "riesgos", 14.5, "Puntos a revisar por categoría")
         bl = [r for r in plan.issues if r["Severidad"] == "BLOQUEO"]
         av = [r for r in plan.issues if r["Severidad"] == "AVISO"]
         if bl:

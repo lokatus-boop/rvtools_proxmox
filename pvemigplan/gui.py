@@ -59,7 +59,20 @@ MIG_FIELDS = [
 EXT_FIELDS = [
     (("hardware", "almacenamiento_externo", "modelo"), "Cabina / NAS (modelo)", str),
     (("hardware", "almacenamiento_externo", "capacidad_util_tib"), "Capacidad útil (TiB)", float),
-    (("hardware", "almacenamiento_externo", "protocolo"), "Protocolo", str),
+]
+SUPPLIERS = {"fsas": "Fsas Technologies", "cliente": "Cliente (existentes o compra propia)"}
+SWITCH_MODELS = {
+    "servicio": ["Juniper QFX5120-48Y (48× 1/10/25 GbE SFP28 + 8× 100 GbE)", "Juniper QFX5120-32C (32× 40/100 GbE QSFP28)"],
+    "almacenamiento": ["Juniper QFX5120-48Y (48× 1/10/25 GbE SFP28 + 8× 100 GbE)", "Switch FC 32 Gb de 24-48 puertos (p. ej. Brocade G620)"],
+    "oob": ["Juniper EX2300-48T (48× 1 GbE + 4× 10 GbE)", "Juniper EX2300-24T (24× 1 GbE + 4× 10 GbE)"],
+}
+IMPL_FIELDS = [
+    (("implementacion", "cluster"), "Nombre del clúster", str),
+    (("implementacion", "patron_hostname"), "Patrón de nombres ({nn} = 01, 02…)", str),
+    (("implementacion", "dominio"), "Dominio DNS", str),
+    (("implementacion", "dns"), "Servidores DNS", str),
+    (("implementacion", "ntp"), "Servidores NTP", str),
+    (("implementacion", "zona_horaria"), "Zona horaria", str),
 ]
 
 
@@ -199,20 +212,22 @@ class App(tk.Tk):
         self.nb.pack(fill="both", expand=True, padx=8, pady=8)
         self._tab_inventory()
         self._tab_target()
+        self._tab_network()
         self._tab_pbs()
         self._tab_migration()
         self._tab_result()
+        self._tab_asbuilt()
         self.status = tk.StringVar(value="Carga el Excel o la carpeta de CSV exportados con PVE Inventory.")
         ttk.Label(self, textvariable=self.status, anchor="w", relief="sunken").pack(fill="x", side="bottom")
 
-    def _var(self, path, typ, parent, row, col, label, width=12, values=None):
+    def _var(self, path, typ, parent, row, col, label, width=12, values=None, sticky="we"):
         ttk.Label(parent, text=label).grid(row=row, column=col, sticky="w", padx=4, pady=2)
         var = tk.StringVar()
         if values:
             w = ttk.Combobox(parent, textvariable=var, values=values, width=width)
         else:
             w = ttk.Entry(parent, textvariable=var, width=width)
-        w.grid(row=row, column=col + 1, sticky="we", padx=4, pady=2)
+        w.grid(row=row, column=col + 1, sticky=sticky, padx=4, pady=2)
         self.vars[path] = (var, typ)
         return w
 
@@ -299,16 +314,50 @@ class App(tk.Tk):
         ttk.Button(bf, text="Editar…", command=self._edit_server).pack(side="left")
         ttk.Button(bf, text="Quitar", command=self._del_server).pack(side="left", padx=4)
         for i, (path, lbl, typ) in enumerate(EXT_FIELDS):
-            self._var(path, typ, self.hw, 2, i * 2, lbl, 18, ["iSCSI", "FC", "NFS"] if path[-1] == "protocolo" else None)
-        self._var(("hardware", "switches", "modelo"), str, self.hw, 3, 0, "Switches (modelo)", 18)
-        self._var(("hardware", "switches", "cantidad"), int, self.hw, 3, 2, "Nº switches", 6)
-        self._var(("hardware", "switches", "puertos"), int, self.hw, 3, 4, "Puertos por switch", 6)
+            self._var(path, typ, self.hw, 2, i * 2, lbl, 18)
         self.hw.columnconfigure(5, weight=1)
         self.hw.rowconfigure(0, weight=1)
 
+    def _tab_network(self):
+        t = ttk.Frame(self.nb, padding=8)
+        self.nb.add(t, text="3 · Red y switches")
+        st = ttk.LabelFrame(t, text="Almacenamiento externo")
+        st.pack(fill="x")
+        self._var(("almacenamiento", "protocolo"), str, st, 0, 0, "Protocolo de la cabina SAN", 8, ["iSCSI", "FC"])
+        ttk.Label(st, foreground="#555", text="FC añade HBAs en los nodos y una pareja de switches FC (fabrics A/B).").grid(row=0, column=2, sticky="w", padx=8)
+        self.sw_vars = {}
+        for r, (kind, title) in enumerate((("servicio", "Switches de servicio (ToR) · VMs, gestión, migración, backup"),
+                                            ("almacenamiento", "Switches de almacenamiento dedicados (Ceph / iSCSI / NFS) o FC"),
+                                            ("oob", "Switch de gestión fuera de banda (OOB / iRMC)"))):
+            f = ttk.LabelFrame(t, text=title)
+            f.pack(fill="x", pady=4)
+            col = 0
+            if kind == "almacenamiento":
+                v = tk.BooleanVar()
+                ttk.Checkbutton(f, text="Usar switches dedicados (con FC siempre)", variable=v).grid(row=0, column=0, columnspan=2, sticky="w", padx=4)
+                self.sw_vars[(kind, "dedicados")] = v
+                col = 0
+                row = 1
+            else:
+                row = 0
+            ttk.Label(f, text="¿Quién los suministra?").grid(row=row, column=col, sticky="w", padx=4)
+            v = tk.StringVar()
+            ttk.Combobox(f, textvariable=v, values=list(SUPPLIERS.values()), state="readonly", width=34).grid(row=row, column=col + 1, sticky="w", padx=4, pady=2)
+            self.sw_vars[(kind, "suministra")] = v
+            self._var(("switches", kind, "modelo"), str, f, row, col + 2, "Modelo (vacío = se propone)", 46, SWITCH_MODELS[kind])
+            f2 = ttk.Frame(f)
+            f2.grid(row=row + 1, column=0, columnspan=4, sticky="w")
+            self._var(("switches", kind, "cantidad"), int, f2, 0, 0, "Nº de switches", 6, sticky="w")
+            self._var(("switches", kind, "puertos"), int, f2, 0, 2, "Puertos por switch", 6, sticky="w")
+            self._var(("switches", kind, "gbps"), float, f2, 0, 4, "Velocidad (Gb)", 6, ["1", "10", "25", "100", "32"], sticky="w")
+        imp = ttk.LabelFrame(t, text="Datos para la implementación (opcional; si se dejan vacíos se proponen a partir del inventario)")
+        imp.pack(fill="x", pady=4)
+        for i, (path, lbl, typ) in enumerate(IMPL_FIELDS):
+            self._var(path, typ, imp, i // 3, (i % 3) * 2, lbl, 22)
+
     def _tab_pbs(self):
         t = ttk.Frame(self.nb, padding=8)
-        self.nb.add(t, text="3 · Backup (PBS)")
+        self.nb.add(t, text="4 · Backup (PBS)")
         self.v_pbs = tk.BooleanVar(value=True)
         ttk.Checkbutton(t, text="Incluir Proxmox Backup Server en el nuevo entorno", variable=self.v_pbs).pack(anchor="w")
         self.v_offsite = tk.BooleanVar(value=False)
@@ -329,7 +378,7 @@ class App(tk.Tk):
 
     def _tab_migration(self):
         t = ttk.Frame(self.nb, padding=8)
-        self.nb.add(t, text="4 · Migración")
+        self.nb.add(t, text="5 · Migración")
         f = ttk.LabelFrame(t, text="Método y olas")
         f.pack(fill="x")
         ttk.Label(f, text="Método").grid(row=0, column=0, sticky="w", padx=4)
@@ -343,15 +392,30 @@ class App(tk.Tk):
 
     def _tab_result(self):
         t = ttk.Frame(self.nb, padding=8)
-        self.nb.add(t, text="5 · Plan y documentos")
+        self.nb.add(t, text="6 · Plan y documentos")
         bar = ttk.Frame(t)
         bar.pack(fill="x")
         ttk.Button(bar, text="Calcular plan", command=self._calculate).pack(side="left")
-        ttk.Button(bar, text="Generar Excel + Word…", command=lambda: self._export(True, True)).pack(side="left", padx=(16, 4))
-        ttk.Button(bar, text="Solo Excel…", command=lambda: self._export(True, False)).pack(side="left")
-        ttk.Button(bar, text="Solo Word…", command=lambda: self._export(False, True)).pack(side="left", padx=4)
-        self.v_charts = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text="Guardar también los gráficos (PNG)", variable=self.v_charts).pack(side="left", padx=12)
+        ttk.Button(bar, text="Generar documentos…", command=self._export).pack(side="left", padx=(16, 4))
+        st = self._settings()
+        self.v_out = {k: tk.BooleanVar(value=st.get("out_" + k, True)) for k in ("xlsx", "design", "impl")}
+        self.v_out["config"] = tk.BooleanVar(value=bool(st.get("config_template")) and st.get("out_config", True))
+        self.v_charts = tk.BooleanVar(value=st.get("out_charts", False))
+        opts = ttk.LabelFrame(t, text="Documentos a generar")
+        opts.pack(fill="x", pady=(6, 0))
+        for i, (k, txt) in enumerate((("xlsx", "Excel del plan (preventa / arquitecto)"),
+                                      ("design", "Word: diseño para el cliente"),
+                                      ("impl", "Word: guía de implementación (servicios profesionales)"),
+                                      ("config", "Hoja de configuración rellena (desde plantilla)"))):
+            ttk.Checkbutton(opts, text=txt, variable=self.v_out[k]).grid(row=i // 2, column=i % 2, sticky="w", padx=6, pady=1)
+        ttk.Checkbutton(opts, text="Guardar también los gráficos (PNG)", variable=self.v_charts).grid(row=2, column=0, sticky="w", padx=6, pady=1)
+        ttk.Label(opts, text="Plantilla de la hoja de configuración:").grid(row=3, column=0, sticky="w", padx=6, pady=2)
+        self.v_template = tk.StringVar(value=st.get("config_template", ""))
+        tf = ttk.Frame(opts)
+        tf.grid(row=3, column=1, sticky="we", padx=6, pady=2)
+        ttk.Entry(tf, textvariable=self.v_template, width=60).pack(side="left", fill="x", expand=True)
+        ttk.Button(tf, text="…", width=3, command=self._pick_template).pack(side="left", padx=2)
+        opts.columnconfigure(1, weight=1)
         pw = ttk.PanedWindow(t, orient="vertical")
         pw.pack(fill="both", expand=True, pady=6)
         self.result_txt = tk.Text(pw, height=14, wrap="word", font=("Consolas", 10))
@@ -370,6 +434,77 @@ class App(tk.Tk):
         sb.pack(side="right", fill="y")
         pw.add(lf, weight=1)
 
+    def _tab_asbuilt(self):
+        t = ttk.Frame(self.nb, padding=10)
+        self.nb.add(t, text="7 · As-built (postventa)")
+        ttk.Label(t, foreground="#555", wraplength=980, justify="left", text=(
+            "Documentación de lo que queda configurado, para el departamento de postventa. Tras la implementación, "
+            "ejecuta PVE Inventory sobre el NUEVO entorno Proxmox y carga aquí su Excel (o carpeta de CSV). "
+            "Opcionalmente añade la hoja de configuración ya completada por servicios profesionales: se incluyen sus datos "
+            "salvo contraseñas, claves y tokens.")).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        self.v_ab_inv = tk.StringVar()
+        self.v_ab_cfg = tk.StringVar()
+        self.v_ab_client = tk.StringVar()
+        self.v_ab_author = tk.StringVar(value=self._settings().get("author", ""))
+        rows = (("Inventario del nuevo entorno:", self.v_ab_inv, self._pick_ab_inv),
+                ("Hoja de configuración completada (opcional):", self.v_ab_cfg, self._pick_ab_cfg),
+                ("Cliente:", self.v_ab_client, None), ("Autor (servicios profesionales):", self.v_ab_author, None))
+        for i, (lbl, var, cmd) in enumerate(rows, start=1):
+            ttk.Label(t, text=lbl).grid(row=i, column=0, sticky="w", padx=4, pady=3)
+            ttk.Entry(t, textvariable=var, width=80).grid(row=i, column=1, sticky="we", padx=4, pady=3)
+            if cmd:
+                ttk.Button(t, text="…", width=3, command=cmd).grid(row=i, column=2, sticky="w")
+        ttk.Button(t, text="Generar documentación as-built…", command=self._asbuilt).grid(row=6, column=1, sticky="w", padx=4, pady=12)
+        t.columnconfigure(1, weight=1)
+
+    def _pick_template(self):
+        p = filedialog.askopenfilename(title="Plantilla de la hoja de configuración", filetypes=[("Excel", "*.xlsx")])
+        if p:
+            self.v_template.set(p)
+            self.v_out["config"].set(True)
+
+    def _pick_ab_inv(self):
+        p = filedialog.askopenfilename(title="Inventario del nuevo entorno", filetypes=[("Excel", "*.xlsx"), ("Todos", "*.*")])
+        if not p:
+            p = filedialog.askdirectory(title="…o carpeta con los CSV")
+        if p:
+            self.v_ab_inv.set(p)
+
+    def _pick_ab_cfg(self):
+        p = filedialog.askopenfilename(title="Hoja de configuración completada", filetypes=[("Excel", "*.xlsx")])
+        if p:
+            self.v_ab_cfg.set(p)
+
+    def _asbuilt(self):
+        src = self.v_ab_inv.get().strip()
+        if not src:
+            messagebox.showwarning(APP_NAME, "Indica el inventario (Excel o carpeta de CSV) del nuevo entorno.")
+            return
+        try:
+            sheets = load([src])
+        except (InventoryError, OSError) as exc:
+            messagebox.showerror(APP_NAME, str(exc))
+            return
+        client = self.v_ab_client.get().strip() or (self.sc.get("cliente") or "")
+        p = filedialog.asksaveasfilename(defaultextension=".docx", initialfile="documentacion_asbuilt.docx", filetypes=[("Word", "*.docx")])
+        if not p:
+            return
+        self._save_settings(author=self.v_ab_author.get().strip())
+        cfg = self.v_ab_cfg.get().strip() or None
+        author = self.v_ab_author.get().strip()
+        self.status.set("Generando documentación as-built…")
+
+        def work():
+            try:
+                from .report_asbuilt import to_asbuilt_docx
+                out = [to_asbuilt_docx(sheets, p, client, author, cfg)]
+                self.after(0, lambda: self._done(out))
+            except Exception as exc:  # noqa: BLE001
+                msg = f"No se pudo generar: {exc}"
+                self.after(0, lambda: messagebox.showerror(APP_NAME, msg))
+
+        threading.Thread(target=work, daemon=True).start()
+
     # ------------------------------------------------------------------ escenario <-> UI
     def _from_scenario(self):
         sc = self.sc
@@ -382,6 +517,9 @@ class App(tk.Tk):
         self.v_mode.set(sc["modo"])
         self.v_storage.set(STORAGE_TYPES[sc["almacenamiento"]["tipo"]])
         self.v_jumbo.set(sc["red"].get("jumbo", True))
+        for (kind, key), var in self.sw_vars.items():
+            val = sc.get("switches", {}).get(kind, {}).get(key)
+            var.set(bool(val) if key == "dedicados" else SUPPLIERS.get(val or "fsas"))
         self.v_basecpu.set(sc["capacidad"]["base_cpu"])
         self.v_basedisk.set(sc["capacidad"]["base_disco"])
         self.v_pbs.set(sc["pbs"]["incluir"])
@@ -407,6 +545,9 @@ class App(tk.Tk):
         sc["modo"] = self.v_mode.get()
         sc["almacenamiento"]["tipo"] = next((k for k, v in STORAGE_TYPES.items() if v == self.v_storage.get()), "ceph")
         sc["red"]["jumbo"] = self.v_jumbo.get()
+        for (kind, key), var in self.sw_vars.items():
+            sc["switches"].setdefault(kind, {})[key] = (var.get() if key == "dedicados"
+                                                        else next((k for k, v in SUPPLIERS.items() if v == var.get()), "fsas"))
         sc["capacidad"]["base_cpu"] = self.v_basecpu.get() or "asignado"
         sc["capacidad"]["base_disco"] = self.v_basedisk.get() or "usado"
         sc["pbs"]["incluir"] = self.v_pbs.get()
@@ -541,46 +682,36 @@ class App(tk.Tk):
         self.risk_tree.delete(*self.risk_tree.get_children())
         for r in self.plan.issues:
             self.risk_tree.insert("", "end", values=tuple(r.values()), tags=(r["Severidad"],))
-        self.nb.select(4)
+        self.nb.select(5)
         self.status.set("Plan calculado: " + ("capacidad OK." if self.plan.eval["ok"] else "¡capacidad insuficiente! Revisa el resumen."))
         return self.plan
 
-    def _export(self, xlsx, docx):
+    def _export(self):
         plan = self._calculate()
         if not plan:
             return
-        base = (plan.sc.get("cliente") or "plan").strip().replace(" ", "_")
-        if xlsx and docx:
-            folder = filedialog.askdirectory(title="Carpeta donde guardar el plan")
-            if not folder:
+        sel = {k: v.get() for k, v in self.v_out.items()}
+        tmpl = self.v_template.get().strip()
+        if sel["config"] and not tmpl:
+            if not messagebox.askyesno(APP_NAME, "No has indicado la plantilla de la hoja de configuración.\n¿Continuar sin ella?"):
                 return
-            paths = (os.path.join(folder, f"Plan_migracion_{base}.xlsx"), os.path.join(folder, f"Plan_migracion_{base}.docx"))
-        elif xlsx:
-            p = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=f"Plan_migracion_{base}.xlsx", filetypes=[("Excel", "*.xlsx")])
-            if not p:
-                return
-            paths = (p, None)
-        else:
-            p = filedialog.asksaveasfilename(defaultextension=".docx", initialfile=f"Plan_migracion_{base}.docx", filetypes=[("Word", "*.docx")])
-            if not p:
-                return
-            paths = (None, p)
-        self.status.set("Generando documentos…")
+            sel["config"] = False
+        if not any(sel.values()):
+            messagebox.showwarning(APP_NAME, "Marca al menos un documento.")
+            return
+        folder = filedialog.askdirectory(title="Carpeta donde guardar los documentos")
+        if not folder:
+            return
+        self._save_settings(config_template=tmpl, out_charts=self.v_charts.get(), **{"out_" + k: v for k, v in sel.items()})
+        base = "Plan_migracion_" + ((plan.sc.get("cliente") or "plan").strip().replace(" ", "_"))
         charts = self.v_charts.get()
+        self.status.set("Generando documentos…")
 
         def work():
             try:
-                out = []
-                if paths[0]:
-                    from .report_xlsx import to_xlsx
-                    out.append(to_xlsx(plan, paths[0]))
-                if paths[1]:
-                    from .report_docx import to_docx
-                    cdir = None
-                    if charts:
-                        cdir = os.path.splitext(paths[1])[0] + "_graficos"
-                        os.makedirs(cdir, exist_ok=True)
-                    out.append(to_docx(plan, paths[1], cdir))
+                from .outputs import generate
+                out = generate(plan, folder, base, xlsx=sel["xlsx"], design=sel["design"], impl=sel["impl"],
+                               charts=charts and sel["design"], config_template=tmpl if sel["config"] else None)
                 self.after(0, lambda: self._done(out))
             except Exception as exc:  # noqa: BLE001
                 msg = f"No se pudo generar: {exc}"
@@ -632,6 +763,16 @@ class App(tk.Tk):
                 return json.load(f)
         except (OSError, ValueError):
             return {}
+
+    def _save_settings(self, **kw):
+        try:
+            os.makedirs(CONFIG_DIR, exist_ok=True)
+            st = self._settings()
+            st.update(kw)
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(st, f)
+        except OSError:
+            pass
 
     def _first_run_notice(self):
         if self._settings().get("disclaimer_accepted") != DISCLAIMER_VERSION:

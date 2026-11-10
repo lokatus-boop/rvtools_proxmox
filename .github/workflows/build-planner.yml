@@ -31,7 +31,7 @@ jobs:
         run: |
           python -c "import sys; sys.path[:0]=['.','tests']; from planner_sample import sample_sheets; from pvetools.export import to_xlsx; to_xlsx(sample_sheets(), 'ejemplo.xlsx')"
           dist\pvemigplan-cli.exe ejemplo.xlsx -o salida --cliente Demo -q
-          if (!(Test-Path salida\plan_migracion.docx) -or !(Test-Path salida\plan_migracion.xlsx)) { exit 1 }
+          if (!(Test-Path salida\plan_migracion_diseno_cliente.docx) -or !(Test-Path salida\plan_migracion_guia_implementacion.docx) -or !(Test-Path salida\plan_migracion.xlsx)) { exit 1 }
           exit 0
       - uses: actions/upload-artifact@v4
         with:

@@ -16,6 +16,12 @@ from .scenario import STORAGE_TYPES, load as load_scenario, new, save as save_sc
 def build_parser():
     ap = argparse.ArgumentParser(prog="pvemigplan-cli", description=f"{APP_NAME} {__version__} · {COMPANY}. {SHORT_NOTICE}")
     ap.add_argument("inventario", nargs="+", help="Excel de PVE Inventory, carpeta con los CSV o un CSV (se pueden indicar varios)")
+    ap.add_argument("--asbuilt", action="store_true",
+                    help="Documentación as-built para postventa: el inventario es el del entorno YA implantado")
+    ap.add_argument("--hoja-config", metavar="XLSX",
+                    help="Plan: plantilla de la hoja de configuración a rellenar. As-built: hoja ya completada (sin contraseñas)")
+    ap.add_argument("--autor", help="Nombre de quien prepara los documentos")
+    ap.add_argument("--sin-implementacion", action="store_true", help="No generar la guía de implementación")
     ap.add_argument("-e", "--escenario", help="JSON del escenario (parámetros y hardware); se crea uno de ejemplo con --guardar-escenario")
     ap.add_argument("-o", "--salida", default=".", help="Carpeta de salida (por defecto, la actual)")
     ap.add_argument("-n", "--nombre", default="plan_migracion", help="Nombre base de los ficheros")
@@ -25,7 +31,7 @@ def build_parser():
     ap.add_argument("--pve", help="Versión de Proxmox VE de destino (p. ej. 9.1)")
     ap.add_argument("--sin-pbs", action="store_true", help="No incluir Proxmox Backup Server")
     ap.add_argument("--catalogo", help="JSON con un catálogo de hardware propio")
-    ap.add_argument("--sin-word", action="store_true", help="No generar el documento Word")
+    ap.add_argument("--sin-word", action="store_true", help="No generar el documento de diseño para el cliente")
     ap.add_argument("--graficos", action="store_true", help="Guardar también los gráficos PNG")
     ap.add_argument("--guardar-escenario", metavar="RUTA", help="Guarda el escenario usado (útil como plantilla)")
     ap.add_argument("-q", "--quiet", action="store_true")
@@ -35,7 +41,11 @@ def build_parser():
 
 def main(argv=None):
     a = build_parser().parse_args(argv)
+    if a.asbuilt:
+        return _asbuilt(a)
     sc = load_scenario(a.escenario) if a.escenario else new()
+    if a.autor:
+        sc["autor"] = a.autor
     if a.cliente:
         sc["cliente"] = a.cliente
     if a.modo:
@@ -54,15 +64,13 @@ def main(argv=None):
     except (InventoryError, PlanError, OSError, json.JSONDecodeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2
-    os.makedirs(a.salida, exist_ok=True)
-    from .report_xlsx import to_xlsx
-    out = [to_xlsx(plan, os.path.join(a.salida, a.nombre + ".xlsx"))]
-    if not a.sin_word:
-        from .report_docx import to_docx
-        cdir = os.path.join(a.salida, a.nombre + "_graficos") if a.graficos else None
-        if cdir:
-            os.makedirs(cdir, exist_ok=True)
-        out.append(to_docx(plan, os.path.join(a.salida, a.nombre + ".docx"), cdir))
+    from .outputs import generate
+    try:
+        out = generate(plan, a.salida, a.nombre, xlsx=True, design=not a.sin_word, impl=not a.sin_implementacion,
+                       charts=a.graficos, config_template=a.hoja_config)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error al generar: {exc}", file=sys.stderr)
+        return 2
     if a.guardar_escenario:
         save_scenario(sc, a.guardar_escenario)
         out.append(a.guardar_escenario)
@@ -72,6 +80,21 @@ def main(argv=None):
         for p in out:
             print("Generado:", p)
     return 0 if plan.eval["ok"] else 1
+
+
+def _asbuilt(a):
+    from .report_asbuilt import to_asbuilt_docx
+    try:
+        sheets = load(a.inventario)
+    except (InventoryError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    os.makedirs(a.salida, exist_ok=True)
+    name = a.nombre if a.nombre != "plan_migracion" else "documentacion_asbuilt"
+    p = to_asbuilt_docx(sheets, os.path.join(a.salida, name + ".docx"), a.cliente or "", a.autor or "", a.hoja_config)
+    if not a.quiet:
+        print("Generado:", p)
+    return 0
 
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ DEFAULT = {
         "base_disco": "usado",       # usado | aprovisionado
         "reserva_snapshots_pct": 10,
     },
-    "almacenamiento": {"tipo": "ceph", "replicas": 3, "llenado_max_pct": 80},
+    "almacenamiento": {"tipo": "ceph", "replicas": 3, "llenado_max_pct": 80, "protocolo": "iSCSI"},  # protocolo: iSCSI | FC (SAN)
     "red": {"velocidad_gbps": 25, "jumbo": True},
     "hardware": {
         "servidores": [
@@ -44,8 +44,16 @@ DEFAULT = {
                       {"puertos": 2, "gbps": 25, "uso": "almacenamiento"}]},
         ],
         "almacenamiento_externo": {"modelo": "", "capacidad_util_tib": 0, "protocolo": "iSCSI"},
-        "switches": {"modelo": "", "cantidad": 2, "gbps": 25, "puertos": 48},
     },
+    # switches: «fsas» = los suministra Fsas Technologies (se propone modelo si se deja vacío) | «cliente» = existentes del cliente
+    "switches": {
+        "servicio": {"suministra": "fsas", "modelo": "", "cantidad": 2, "puertos": 48, "gbps": 25},
+        "almacenamiento": {"dedicados": False, "suministra": "fsas", "modelo": "", "cantidad": 2, "puertos": 48, "gbps": 25},
+        "oob": {"suministra": "fsas", "modelo": "", "cantidad": 1, "puertos": 48, "gbps": 1},
+    },
+    # datos para la implementación (opcionales; se proponen a partir del inventario si se dejan vacíos)
+    "implementacion": {"cluster": "", "patron_hostname": "pve{nn}", "dominio": "", "dns": "", "ntp": "",
+                       "zona_horaria": ""},
     "pbs": {
         "incluir": True,
         "retencion": {"diaria": 14, "semanal": 8, "mensual": 12, "anual": 0},

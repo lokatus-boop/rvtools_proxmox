@@ -164,7 +164,7 @@ def to_xlsx(plan, path):
                          "Cores totales": e["cores"], "RAM total (GiB)": e["ram_gib"],
                          "Almacenamiento útil (TiB)": round(e["almacenamiento_util_gib"] / 1024, 1),
                          "CPU % (N-1)": round(e["cpu_pct_n1"]), "RAM % (N-1)": round(e["ram_pct_n1"]),
-                         "Sockets (suscripciones PVE)": e["sockets"], "Coste relativo": o["coste_rel"]})
+                         "Sockets (suscripciones PVE)": e["sockets"]})
         _table(wb, "Opciones hardware", rows)
     _table(wb, "Nodos destino", node_rows(plan))
     e = plan.eval
@@ -181,8 +181,11 @@ def to_xlsx(plan, path):
     _table(wb, "Redes", [{"Red": n["red"], "Interfaz": n["interfaz"], "Puertos por nodo": n["puertos"], "Modo": n["modo"],
                           "VLAN": n["vlan"], "MTU": n["mtu"], "Notas": n["nota"]} for n in plan.networks])
     _table(wb, "VLANs", plan.vlan_map)
-    _table(wb, "Puertos switch", [{"Velocidad": f"{k} GbE" if k != "BMC" else "1 GbE (BMC/iRMC)", "Puertos": v,
-                                   "Por switch (2 switches)": v if k == "BMC" else -(-v // 2)} for k, v in plan.port_summary().items()])
+    _table(wb, "Switches", [{"Función": w["tipo"], "Suministra": w["suministra"], "Modelo": w["modelo"], "Nº switches": w["cantidad"],
+                             "Puertos por switch": w["puertos_por_switch"], "Puertos necesarios": w["puertos_necesarios"],
+                             "Velocidad": w["velocidad"], "Redundancia": w["redundancia"]} for w in plan.net.switches])
+    _table(wb, "Puertos nodo", plan.net.host_ports)
+    _table(wb, "Cableado", plan.net.switch_port_map())
     sto = [{"Concepto": "Tipo", "Valor": STORAGE_TYPES.get(st["tipo"], st["tipo"])},
            {"Concepto": "Datos a alojar (TiB, con crecimiento y reserva)", "Valor": round(plan.req.data_gib / 1024, 2)},
            {"Concepto": "Capacidad útil (TiB)", "Valor": round(e["almacenamiento_util_gib"] / 1024, 2)}]

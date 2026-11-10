@@ -181,7 +181,7 @@ def advise(an, sc, cat) -> list[dict]:
         return []
     cands.sort(key=lambda s: (s.cost, s.count))
     picked, seen_counts = [], set()
-    labels = ["Recomendada (menor coste estimado)", "Alternativa", "Alternativa"]
+    labels = ["Recomendada", "Alternativa", "Alternativa"]
     for c in cands:
         key = (c.count, c.model)
         if key in seen_counts:
@@ -208,8 +208,10 @@ def advise(an, sc, cat) -> list[dict]:
 def default_nics(sc, typ):
     g = sc["red"]["velocidad_gbps"]
     nics = [{"puertos": 2, "gbps": 1, "uso": "gestion"}, {"puertos": 2, "gbps": g, "uso": "vms"}]
-    if typ in ("ceph", "san", "nfs"):
-        nics.append({"puertos": 2, "gbps": g, "uso": "almacenamiento"})
+    if typ == "san" and str(sc["almacenamiento"].get("protocolo", "")).upper() == "FC":
+        nics.append({"puertos": 2, "gbps": 32, "uso": "fc"})
+    elif typ in ("ceph", "san", "nfs"):
+        nics.append({"puertos": 2, "gbps": max(g, 25) if typ == "ceph" else g, "uso": "almacenamiento"})
     return nics
 
 

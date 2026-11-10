@@ -97,9 +97,63 @@ def test_reports():
     out = os.path.join(d, "out")
     rc = main([os.path.join(d, "inv.xlsx"), "-o", out, "--cliente", "Demo", "--graficos", "-q"])
     assert rc == 0
-    for f in ("plan_migracion.xlsx", "plan_migracion.docx"):
+    for f in ("plan_migracion.xlsx", "plan_migracion_diseno_cliente.docx", "plan_migracion_guia_implementacion.docx"):
         assert os.path.getsize(os.path.join(out, f)) > 10000
     assert len(os.listdir(os.path.join(out, "plan_migracion_graficos"))) >= 10
     from openpyxl import load_workbook
     wb = load_workbook(os.path.join(out, "plan_migracion.xlsx"), read_only=True)
     assert {"Aviso", "Resumen", "Opciones hardware", "Ubicación VMs", "Redes", "VLANs", "PBS", "Olas", "Riesgos"} <= set(wb.sheetnames)
+    assert {"Switches", "Puertos nodo", "Cableado"} <= set(wb.sheetnames)
+
+
+def test_network_model():
+    p = Plan(sample_sheets(), scenario.new())
+    names = {n["red"] for n in p.networks}
+    assert {"Management", "Cluster (corosync) 1", "Payload (VMs)", "Ceph Private"} <= names
+    assert p.net.host_ports and all(h["Device Name"] for h in p.net.host_ports)
+    tipos = {w["tipo"] for w in p.net.switches}
+    assert any(t.startswith("Servicio") for t in tipos) and any("OOB" in t for t in tipos)
+    sc = scenario.new()
+    sc["switches"]["servicio"].update(suministra="cliente", modelo="Cisco Nexus 93180YC-FX")
+    p = Plan(sample_sheets(), sc)
+    svc = next(w for w in p.net.switches if w["tipo"].startswith("Servicio"))
+    assert "Cisco" in svc["modelo"] and "cliente" in svc["suministra"].lower()
+
+
+def _fake_template(path):
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Cover Sheet"
+    ws["B5"], ws["B6"] = "Company Name:", "Password"
+    ws = wb.create_sheet("Host Ports")
+    ws["B2"], ws["B30"] = "Host Link", "Example:"
+    ws = wb.create_sheet("Networks")
+    for i, n in enumerate(["Management", "Cluster (corosync) 1", "Payload 1", "Network sensitivity & traffic characteristics"]):
+        ws.cell(4 + i, 2, n)
+    ws = wb.create_sheet("Settings")
+    for i, n in enumerate(["Cluster Name", "Timezone", "Root Password", "Primary DNS Server IP Address"]):
+        ws.cell(3 + i, 2, n)
+    wb.save(path)
+
+
+def test_config_sheet_and_asbuilt():
+    pytest.importorskip("docx")
+    from openpyxl import load_workbook
+    from pvemigplan.config_sheet import fill
+    from pvemigplan.report_asbuilt import to_asbuilt_docx
+    d = tempfile.mkdtemp()
+    tmpl, out = os.path.join(d, "t.xlsx"), os.path.join(d, "o.xlsx")
+    _fake_template(tmpl)
+    sc = scenario.new()
+    sc["cliente"] = "Acme Corp"
+    fill(Plan(sample_sheets(), sc), tmpl, out)
+    wb = load_workbook(out)
+    assert wb["Cover Sheet"]["D5"].value == "Acme Corp"
+    assert wb["Cover Sheet"]["D6"].value is None              # contraseñas nunca
+    assert wb["Settings"]["C3"].value == "acme-pve"
+    assert wb["Settings"]["C5"].value is None
+    assert wb["Host Ports"]["E3"].value
+    assert wb["Networks"]["G4"].value.endswith("GbE")
+    doc = to_asbuilt_docx(sample_sheets(), os.path.join(d, "ab.docx"), "Acme", "PS", out)
+    assert os.path.getsize(doc) > 10000

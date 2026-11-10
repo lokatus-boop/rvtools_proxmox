@@ -2,13 +2,11 @@
 from __future__ import annotations
 
 import os
-import textwrap
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.patches import FancyBboxPatch  # noqa: E402
 
 # Paleta categórica validada (orden fijo) y colores de estado
 C1, C2, C3 = "#2a78d6", "#eb6834", "#1baf7a"
@@ -175,104 +173,6 @@ def node_distribution(plan, folder):
     return _save(fig, folder, "destino_reparto.png")
 
 
-def options_compare(plan, folder):
-    if not plan.options:
-        return None
-    labels = [f"Opción {i + 1}\n{o['nodos'][0].count}× {o['nodos'][0].model}" for i, o in enumerate(plan.options)]
-    vals = [o["coste_rel"] for o in plan.options]
-    fig, ax = plt.subplots(figsize=(6, 2.4))
-    bars = ax.barh(labels, vals, color=[C1] + [SEQ_LIGHT] * (len(vals) - 1), height=0.55)
-    ax.invert_yaxis()
-    ax.set_xlim(0, max(vals) * 1.2)
-    ax.set_title("Coste relativo estimado (opción 1 = 100)")
-    ax.grid(axis="y", visible=False)
-    _hbar_labels(ax, bars)
-    return _save(fig, folder, "destino_opciones.png")
-
-
-def architecture(plan, folder):
-    """Esquema lógico: switches, nodos, almacenamiento, PBS y redes."""
-    n = len(plan.nodes)
-    shown = plan.nodes if n <= 8 else plan.nodes[:7]
-    w = max(9, 1.25 * (len(shown) + 2))
-    fig, ax = plt.subplots(figsize=(w * 0.8, 5.2))
-    ax.set_xlim(0, w)
-    ax.set_ylim(0, 6)
-    ax.axis("off")
-
-    def box(x, y, bw, bh, text, fc, ec=BRAND, fs=8, color=INK, bold=False):
-        ax.add_patch(FancyBboxPatch((x, y), bw, bh, boxstyle="round,pad=0.02,rounding_size=0.08", fc=fc, ec=ec, lw=1))
-        chars = max(int(bw * 0.8 * 72 / (fs * 0.62)), 8)   # caracteres que caben por línea (aprox.)
-        text = "\n".join(textwrap.fill(t, chars) for t in text.split("\n"))
-        ax.text(x + bw / 2, y + bh / 2, text, ha="center", va="center", fontsize=fs, color=color,
-                fontweight="bold" if bold else "normal")
-
-    # switches
-    box(0.5, 4.9, w - 1, 0.6, "2× switch de servicio (MLAG/stack) · " + f"{plan.sc['red']['velocidad_gbps']} GbE · VLANs de VMs, migración, backup"
-        + (" y almacenamiento" if plan.storage_type in ("ceph", "san", "nfs") else ""), "#e8f0f9", fs=8.5, bold=True)
-    # nodos
-    nx0 = 0.5
-    step = (w - 1) / max(len(shown) + (1 if n > len(shown) else 0), 1)
-    bw = min(step * 0.85, 1.6)
-    spec = shown[0]["spec"]
-    for i, nd in enumerate(shown):
-        x = nx0 + i * step + (step - bw) / 2
-        s = nd["spec"]
-        box(x, 2.6, bw, 1.5, f"{nd['name']}\n{s.cores} cores\n{s.ram_gib} GiB"
-            + (f"\n{s.data_disks}× {s.data_disk_tb:g} TB" if s.data_disks and plan.storage_type in ('ceph', 'zfs') else ""),
-            "white", fs=7.5)
-        ax.plot([x + bw / 2, x + bw / 2], [4.1, 4.9], color=C1, lw=1.6)
-    if n > len(shown):
-        x = nx0 + len(shown) * step + (step - bw) / 2
-        box(x, 2.6, bw, 1.5, f"… +{n - len(shown)}\nnodos", "white", fs=8)
-    ax.text(w / 2, 2.35, f"Clúster Proxmox VE {plan.sc['pve_version']} · {n} nodos · {spec.model}", ha="center", fontsize=9,
-            color=BRAND, fontweight="bold")
-    # almacenamiento
-    typ = plan.storage_type
-    if typ == "ceph":
-        box(0.5, 1.2, w - 1, 0.7, f"Ceph (réplica {plan.sc['almacenamiento'].get('replicas', 3)}) distribuido en todos los nodos · "
-            f"{plan.eval['almacenamiento_util_gib'] / 1024:.1f} TiB útiles · red dedicada", "#e6f6ef", ec=C3, fs=8.5)
-    elif typ == "zfs":
-        box(0.5, 1.2, w - 1, 0.7, f"ZFS local en cada nodo + replicación entre nodos · {plan.eval['almacenamiento_util_gib'] / 1024:.1f} TiB útiles",
-            "#e6f6ef", ec=C3, fs=8.5)
-    else:
-        lbl = "Cabina SAN (iSCSI/FC, multipath)" if typ == "san" else "NAS NFS"
-        box(0.5, 1.2, (w - 1) * (0.55 if plan.pbs else 1), 0.7, f"{lbl} · {plan.eval['almacenamiento_util_gib'] / 1024:.1f} TiB útiles",
-            "#e6f6ef", ec=C3, fs=8.5)
-    if plan.pbs:
-        p = plan.pbs["propuesta"]
-        x0 = 0.5 + (w - 1) * 0.6 if typ in ("san", "nfs") else w * 0.55
-        bw2 = w - 0.5 - x0
-        y0 = 1.2 if typ in ("san", "nfs") else 0.2
-        box(x0, y0, bw2, 0.7, f"Proxmox Backup Server · {plan.pbs['util_necesario_gib'] / 1024:.1f} TiB · {p['cores']} cores · {p['ram_gib']} GiB",
-            "#fdf0e9", ec=C2, fs=8)
-    box(0.5, 0.2, w * 0.45, 0.7, "Red de gestión + Corosync (2 enlaces) · BMC/iRMC fuera de banda", "#f0efec", ec=INK2, fs=8)
-    ax.set_title("Arquitectura propuesta", loc="left")
-    return _save(fig, folder, "destino_arquitectura.png")
-
-
-def node_network(plan, folder):
-    """Esquema de puertos → bonds → bridges/usos de un nodo tipo."""
-    fig, ax = plt.subplots(figsize=(8.5, 3.6))
-    ax.axis("off")
-    ax.set_xlim(0, 10)
-    nets = plan.networks
-    phys = [x for x in nets if x["puertos"] not in ("-",)]
-    ax.set_ylim(0, len(phys) + 0.5)
-    for i, nt in enumerate(phys):
-        y = len(phys) - i - 0.5
-        for x, txt, fc in ((0.2, nt["puertos"], "#f0efec"), (3.0, nt["interfaz"], "#e8f0f9"), (6.3, nt["red"], "white")):
-            ax.add_patch(FancyBboxPatch((x, y - 0.32), 3.1 if x == 6.3 else 2.5, 0.64, boxstyle="round,pad=0.02,rounding_size=0.06",
-                                        fc=fc, ec=BRAND, lw=0.8))
-            ax.text(x + (1.55 if x == 6.3 else 1.25), y, textwrap.fill(txt, 34 if x == 6.3 else 28), ha="center", va="center", fontsize=7.2)
-        ax.annotate("", (3.0, y), (2.7, y), arrowprops=dict(arrowstyle="->", color=INK2, lw=0.8))
-        ax.annotate("", (6.3, y), (5.5, y), arrowprops=dict(arrowstyle="->", color=INK2, lw=0.8))
-    ax.text(1.45, len(phys) + 0.25, "Puertos físicos", ha="center", fontsize=8, color=INK2, fontweight="bold")
-    ax.text(4.25, len(phys) + 0.25, "Bond / bridge", ha="center", fontsize=8, color=INK2, fontweight="bold")
-    ax.text(7.85, len(phys) + 0.25, "Uso", ha="center", fontsize=8, color=INK2, fontweight="bold")
-    return _save(fig, folder, "destino_red_nodo.png")
-
-
 def waves_gantt(plan, folder):
     ws = plan.waves
     if not ws:
@@ -339,12 +239,13 @@ def risks(plan, folder):
 
 
 def all_charts(plan, folder) -> dict:
+    from .diagrams import architecture, network_diagram
     os.makedirs(folder, exist_ok=True)
     out = {}
     for name, fn in (("origen_nodos", source_hosts), ("origen_so", os_distribution), ("origen_tamanos", vm_sizes),
                      ("origen_almacenamiento", source_storage), ("destino_capacidad", capacity),
-                     ("destino_reparto", node_distribution), ("destino_opciones", options_compare),
-                     ("destino_arquitectura", architecture), ("destino_red_nodo", node_network),
+                     ("destino_reparto", node_distribution),
+                     ("destino_arquitectura", architecture), ("destino_red", network_diagram),
                      ("migracion_olas", waves_gantt), ("pbs_capacidad", pbs_capacity), ("riesgos", risks)):
         try:
             p = fn(plan, folder)

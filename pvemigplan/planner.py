@@ -44,7 +44,9 @@ class Plan:
         self.nodes = self._name_nodes()
         self.placement = self._place()
         self.pbs = pbs_sizing(self.req, sc, self.cat) if sc["pbs"]["incluir"] else None
-        self.networks = self._network_design()
+        from .network import NetworkModel
+        self.net = NetworkModel(self)
+        self.networks = self.net.networks
         self.vlan_map = self._vlan_map()
         self.issues = self._issues()
         self.method = self._method()
@@ -54,9 +56,14 @@ class Plan:
     # ------------------------------------------------------------------ nodos y ubicación
     def _name_nodes(self):
         out = []
+        pattern = (self.sc.get("implementacion", {}).get("patron_hostname") or "pve{nn}")
         for i, spec in enumerate(expand(self.groups), 1):
             osds = spec.data_disks if self.storage_type == "ceph" else 0
-            out.append({"name": f"pve{i:02d}", "spec": spec,
+            try:
+                name = pattern.format(nn=f"{i:02d}", n=i)
+            except (KeyError, IndexError, ValueError):
+                name = f"pve{i:02d}"
+            out.append({"name": name, "spec": spec,
                         "ram_usable": spec.ram_gib - node_overhead_gib(spec.ram_gib, self.storage_type, osds),
                         "cores": spec.cores, "vcpu": 0.0, "ram": 0.0, "disk": 0.0, "guests": []})
         return out
@@ -83,60 +90,9 @@ class Plan:
         return placement
 
     # ------------------------------------------------------------------ redes
-    def _network_design(self):
-        g = self.sc["red"]["velocidad_gbps"]
-        typ = self.storage_type
-        jumbo = self.sc["red"].get("jumbo", True)
-        mtu = 9000 if jumbo else 1500
-        vlans = sorted({int(v["vlan"]) for v in self.an.vlan_usage() if v["vlan"].isdigit()})
-        nets = [
-            {"red": "Gestión (GUI/API/SSH) + Corosync enlace 0", "interfaz": "bond0 → vmbr0", "puertos": "2× 1/10 GbE",
-             "modo": "active-backup", "vlan": "nativa / dedicada", "mtu": 1500,
-             "nota": "IP fija por nodo. Corosync necesita baja latencia (< 5 ms): no compartir con tráfico intenso."},
-            {"red": "Corosync enlace 1 (redundante)", "interfaz": "VLAN sobre bond de almacenamiento o puerto dedicado",
-             "puertos": "-", "modo": "-", "vlan": "dedicada", "mtu": 1500,
-             "nota": "Segundo anillo de Corosync (knet) en otra red física."},
-            {"red": "Tráfico de VMs", "interfaz": "bond1 → vmbr1 (VLAN aware)", "puertos": f"2× {g} GbE",
-             "modo": "802.3ad (LACP) layer3+4", "vlan": (", ".join(map(str, vlans[:30])) + ("…" if len(vlans) > 30 else "")) or "según inventario",
-             "mtu": 1500, "nota": "Switches en MLAG/stack. VLANs de origen replicadas (ver tabla de correspondencia). "
-                                 "Se puede gestionar con SDN (zona VLAN) para tener las VNets definidas a nivel de clúster."},
-            {"red": "Migración en caliente", "interfaz": "VLAN sobre bond1 o bond2", "puertos": "-", "modo": "-",
-             "vlan": "dedicada", "mtu": mtu, "nota": "Datacenter → Opciones → Red de migración (tipo insecure si es red aislada)."},
-        ]
-        if typ == "ceph":
-            nets.append({"red": "Ceph público + clúster", "interfaz": "bond2", "puertos": f"2× {max(g, 25)} GbE",
-                         "modo": "802.3ad (LACP) o active-backup", "vlan": "dedicadas (2)", "mtu": mtu,
-                         "nota": "Redes separadas para public_network y cluster_network si es posible. Jumbo frames extremo a extremo."})
-        elif typ == "san":
-            nets.append({"red": "Almacenamiento iSCSI / FC", "interfaz": "2 puertos independientes (multipath)",
-                         "puertos": f"2× {g} GbE o 2× FC 32 Gb", "modo": "sin bond, multipath", "vlan": "2 VLANs/fabrics",
-                         "mtu": mtu, "nota": "Dos caminos independientes hacia ambas controladoras de la cabina."})
-        elif typ == "nfs":
-            nets.append({"red": "Almacenamiento NFS", "interfaz": "bond2", "puertos": f"2× {g} GbE",
-                         "modo": "802.3ad (LACP)", "vlan": "dedicada", "mtu": mtu, "nota": "NFS v4.1/v4.2 con nconnect si la NAS lo soporta."})
-        else:
-            nets.append({"red": "Replicación ZFS", "interfaz": "VLAN sobre bond1", "puertos": "-", "modo": "-",
-                         "vlan": "dedicada", "mtu": mtu, "nota": "Replicación asíncrona entre nodos (cada 1-15 min)."})
-        if self.pbs:
-            nets.append({"red": "Backup (PBS)", "interfaz": "VLAN sobre bond1 / bond2", "puertos": "-", "modo": "-",
-                         "vlan": "dedicada", "mtu": mtu, "nota": "El PBS se conecta con 2× 10/25 GbE a los switches de servicio."})
-        nets.append({"red": "BMC / gestión fuera de banda (iRMC)", "interfaz": "puerto dedicado", "puertos": "1× 1 GbE",
-                     "modo": "-", "vlan": "red OOB", "mtu": 1500, "nota": "Necesario para fencing de hardware opcional y soporte remoto."})
-        return nets
-
     def port_summary(self):
-        """Puertos de switch necesarios (por velocidad)."""
-        ports = {}
-        for n in self.nodes:
-            for nic in n["spec"].nics:
-                ports[nic["gbps"]] = ports.get(nic["gbps"], 0) + int(nic["puertos"])
-            ports["BMC"] = ports.get("BMC", 0) + 1
-        if self.pbs:
-            g = max(self.sc["red"]["velocidad_gbps"], 10)
-            ports[g] = ports.get(g, 0) + 2
-            ports[1] = ports.get(1, 0) + 1
-            ports["BMC"] = ports.get("BMC", 0) + 1
-        return ports
+        """Puertos de switch necesarios por fabric."""
+        return {f["nombre"]: f["puertos"] for f in self.net.fabrics}
 
     def _vlan_map(self):
         rows = []
@@ -334,7 +290,7 @@ class Plan:
                 n = o["nodos"][0]
                 lines.append(f"• {o['etiqueta']}: {n.count}× {n.model} · {n.cpu_label} · {n.ram_gib} GiB"
                              + (f" · {n.data_disks}× {n.data_disk_tb} TB {n.data_disk_type}" if n.data_disks else "")
-                             + f"  (coste relativo {o['coste_rel']} %)")
+                             + f"  ({o['eval']['sockets']} sockets)")
         lines.append(f"Destino: {s['nodos']} nodos, {s['cores']} cores, {s['ram_dest_gib']} GiB RAM, "
                      f"{s['util_tib']:.1f} TiB útiles ({s['almacenamiento']}), Proxmox VE {s['pve']}.")
         lines.append(f"Ocupación: CPU {s['cpu_pct']:.0f} % ({s['cpu_pct_n1']:.0f} % con N-{self.sc['capacidad']['n_mas']}), "
