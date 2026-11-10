@@ -52,3 +52,15 @@ def test_cluster_and_standalone():
 if __name__ == "__main__":
     test_cluster_and_standalone()
     print("OK")
+
+
+def test_password_login_edge_cases():
+    import pytest
+    from pvetools.api import PVEClient, PVEError
+    sa = serve(mock_pve.standalone_data())
+    # contraseña pegada con espacio final -> se reintenta sin espacios
+    assert PVEClient(host=sa, user="root@pam", password="pw ").get("version")["version"] == "8.4.1"
+    with pytest.raises(PVEError, match="incorrectos"):
+        PVEClient(host=sa, user="root@pam", password="mala")
+    with pytest.raises(PVEError, match="realm"):
+        PVEClient(host=sa, user="root", password="pw")

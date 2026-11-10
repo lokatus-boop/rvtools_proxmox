@@ -29,6 +29,9 @@ class PVEClient:
         self.user = user
         self.timeout = timeout
         self.session = requests.Session()
+        # Proxmox está en la red local: ignorar proxies del sistema/variables de entorno,
+        # que en redes corporativas pueden interceptar o romper la conexión.
+        self.session.trust_env = False
         self.session.verify = verify_ssl
         if not verify_ssl:
             warnings.filterwarnings("ignore", message="Unverified HTTPS request")
@@ -59,15 +62,27 @@ class PVEClient:
             return h, int(p)
         return host, DEFAULT_PORT
 
-    def _login(self, password: str, otp: str | None):
+    def _post_ticket(self, password: str, otp: str | None):
         data = {"username": self.user, "password": password}
         if otp:
             data["otp"] = otp
         try:
-            r = self.session.post(f"{self.base}/access/ticket", data=data, timeout=self.timeout,
-                                  verify=self.session.verify)
+            return self.session.post(f"{self.base}/access/ticket", data=data, timeout=self.timeout,
+                                     verify=self.session.verify)
         except requests.RequestException as e:
             raise PVEError(f"No se puede conectar con {self.host}:{self.port}: {e}") from e
+
+    def _login(self, password: str, otp: str | None):
+        r = self._post_ticket(password, otp)
+        if r.status_code == 401 and password != password.strip():
+            # típico al pegar la contraseña: espacio o salto de línea al principio/final
+            r = self._post_ticket(password.strip(), otp)
+        if r.status_code == 401:
+            if "@" not in self.user:
+                hint = "falta el realm en el usuario (p. ej. root@pam)"
+            else:
+                hint = "usuario, realm (@pam / @pve) o contraseña incorrectos"
+            raise PVEError(f"Login rechazado por {self.host} (401): {hint}")
         if r.status_code != 200:
             raise PVEError(f"Login fallido en {self.host} ({r.status_code}): {r.reason}")
         d = r.json().get("data") or {}

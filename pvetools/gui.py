@@ -87,7 +87,13 @@ class App(tk.Tk):
         self.ent_tokid.grid(row=r, column=1, sticky="we", padx=4)
         self.lbl_secret = ttk.Label(top, text="Secreto del token")
         self.lbl_secret.grid(row=r, column=2, sticky="w", padx=4)
-        ttk.Entry(top, textvariable=self.v_secret, show="•", width=22).grid(row=r, column=3, sticky="we", padx=4)
+        sec = ttk.Frame(top)
+        sec.grid(row=r, column=3, sticky="we", padx=4)
+        self.ent_secret = ttk.Entry(sec, textvariable=self.v_secret, show="•", width=22)
+        self.ent_secret.pack(side="left", fill="x", expand=True)
+        self.v_show = tk.BooleanVar(value=False)
+        ttk.Checkbutton(sec, text="Mostrar", variable=self.v_show,
+                        command=lambda: self.ent_secret.configure(show="" if self.v_show.get() else "•")).pack(side="left", padx=(4, 0))
         ttk.Checkbutton(top, text="Verificar certificado SSL", variable=self.v_verify).grid(row=r, column=4, sticky="w", padx=4)
         ttk.Checkbutton(top, text="Consultar guest agent (IPs, SO)", variable=self.v_agent).grid(row=r, column=5, sticky="w", padx=4)
         r += 1
@@ -220,7 +226,7 @@ class App(tk.Tk):
             c["token_id"] = self.v_tokid.get().strip()
             c["token_secret"] = self.v_secret.get().strip()
         else:
-            c["password"] = self.v_secret.get()
+            c["password"] = self.v_secret.get().strip("\r\n")
         return c
 
     def _add_conn(self):
