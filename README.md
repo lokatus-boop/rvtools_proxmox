@@ -123,3 +123,8 @@ python tools/gen_format_doc.py     # regenera docs/FORMATO_EXPORTACION.md tras c
 ```
 
 `tests/mock_pve.py` simula la API de Proxmox, así que se puede probar sin servidores reales.
+
+## Planificador de migración (uso interno)
+
+En la carpeta `pvemigplan/` está **PVE Migration Planner**, una aplicación aparte (no se envía al cliente) que lee el Excel/CSV
+de esta herramienta y genera el diseño de la nueva plataforma y el plan de migración en Excel y Word. Ver [docs/PLANIFICADOR.md](docs/PLANIFICADOR.md).
