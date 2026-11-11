@@ -33,6 +33,14 @@ def _save(fig, folder, name):
     return p
 
 
+def _legend_below(ax, *args, ncol=3, gap=0.62, **kw):
+    """Leyenda debajo del eje a una distancia fija (pulgadas), sin depender de la altura del gráfico."""
+    from matplotlib.transforms import ScaledTranslation
+    tr = ax.transAxes + ScaledTranslation(0, -gap, ax.figure.dpi_scale_trans)
+    return ax.legend(*args, loc="upper center", bbox_to_anchor=(0.5, 0), bbox_transform=tr, ncol=ncol,
+                     fontsize=8, frameon=False, **kw)
+
+
 def _hbar_labels(ax, bars, fmt="{:.0f}", pad=0.01):
     xmax = ax.get_xlim()[1]
     for b in bars:
@@ -62,14 +70,14 @@ def source_hosts(plan, folder):
     a1.invert_yaxis()
     a1.set_title("CPU por nodo de origen")
     _hbar_labels(a1, b)
-    a1.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2, fontsize=8)
+    _legend_below(a1, ncol=2)
     a2.barh([i - h / 2 for i in y], [x.ram_gib for x in hs], height=h, color=SEQ_LIGHT, label="RAM física (GiB)")
     b = a2.barh([i + h / 2 for i in y], [x.ram_used_gib for x in hs], height=h, color=C1, label="RAM usada (GiB)")
     a2.set_yticks(list(y), [""] * len(hs))
     a2.invert_yaxis()
     a2.set_title("Memoria por nodo de origen")
     _hbar_labels(a2, b)
-    a2.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2, fontsize=8)
+    _legend_below(a2, ncol=2)
     fig.tight_layout()
     return _save(fig, folder, "origen_nodos.png")
 
@@ -119,7 +127,7 @@ def source_storage(plan, folder):
     ax.invert_yaxis()
     ax.set_xlabel("TiB")
     ax.set_title("Almacenamientos de origen")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.3), ncol=3, fontsize=8)
+    _legend_below(ax, ncol=3)
     ax.grid(axis="y", visible=False)
     return _save(fig, folder, "origen_almacenamiento.png")
 
@@ -148,7 +156,7 @@ def capacity(plan, folder):
     ax.set_xlim(0, max(110, max(n1) * 1.15))
     ax.set_xlabel("% de ocupación prevista (con crecimiento) · línea discontinua = objetivo · roja = 100 %")
     ax.set_title("Ocupación del nuevo entorno")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.32), ncol=2, fontsize=8)
+    _legend_below(ax, ncol=2)
     ax.grid(axis="y", visible=False)
     return _save(fig, folder, "destino_capacidad.png")
 
@@ -167,7 +175,7 @@ def node_distribution(plan, folder):
         ax.text(used[i] + free[i], i, f"  {len(n['guests'])} VMs · {n['vcpu']:.0f} vCPU", va="center", fontsize=8, color=INK2)
     ax.invert_yaxis()
     ax.set_title("Reparto inicial de VMs por nodo de destino")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=3, fontsize=8)
+    _legend_below(ax, ncol=3)
     ax.grid(axis="y", visible=False)
     ax.set_xlim(0, max(u + f for u, f in zip(used, free)) * 1.3)
     return _save(fig, folder, "destino_reparto.png")
@@ -177,7 +185,7 @@ def waves_gantt(plan, folder):
     ws = plan.waves
     if not ws:
         return None
-    fig, ax = plt.subplots(figsize=(8, 0.34 * len(ws) + 1.2))
+    fig, ax = plt.subplots(figsize=(8, max(2.4, 0.34 * len(ws) + 1.2)))
     color = {"Piloto": C3, "Estándar": C1, "Críticas": C2, "Con bloqueos": CRIT}
     for i, w in enumerate(ws):
         dur = max(w["horas"] / 24 * 3, 0.6)  # ventana + validación
@@ -192,7 +200,7 @@ def waves_gantt(plan, folder):
     ax.set_title("Calendario de olas de migración")
     ax.grid(axis="y", visible=False)
     handles = [plt.Rectangle((0, 0), 1, 1, color=c) for k, c in color.items() if any(w["tipo"] == k for w in ws)]
-    ax.legend(handles, [k for k in color if any(w["tipo"] == k for w in ws)], loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=4, fontsize=8)
+    _legend_below(ax, handles, [k for k in color if any(w["tipo"] == k for w in ws)], ncol=4)
     return _save(fig, folder, "migracion_olas.png")
 
 
@@ -212,7 +220,7 @@ def pbs_capacity(plan, folder):
     ax.set_yticks([])
     ax.set_xlabel("TiB útiles en el datastore")
     ax.set_title("Capacidad estimada del PBS")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.45), ncol=3, fontsize=8)
+    _legend_below(ax, ncol=3)
     ax.grid(axis="y", visible=False)
     return _save(fig, folder, "pbs_capacidad.png")
 
@@ -233,7 +241,7 @@ def risks(plan, folder):
         ax.text(v, i, f"  {v}", va="center", fontsize=8, color=INK2)
     ax.invert_yaxis()
     ax.set_title("Puntos a revisar por categoría")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18), ncol=3, fontsize=8)
+    _legend_below(ax, ncol=3)
     ax.grid(axis="y", visible=False)
     return _save(fig, folder, "riesgos.png")
 
