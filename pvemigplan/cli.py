@@ -16,6 +16,9 @@ from .scenario import STORAGE_TYPES, load as load_scenario, new, save as save_sc
 def build_parser():
     ap = argparse.ArgumentParser(prog="pvemigplan-cli", description=f"{APP_NAME} {__version__} · {COMPANY}. {SHORT_NOTICE}")
     ap.add_argument("inventario", nargs="+", help="Excel de PVE Inventory, carpeta con los CSV o un CSV (se pueden indicar varios)")
+    ap.add_argument("--analisis", "--solo-analisis", dest="analisis", action="store_true",
+                    help="Solo análisis: informe de la infraestructura actual (tipo RVTools/health check) con gráficos, "
+                         "sin plan de migración ni hardware")
     ap.add_argument("--asbuilt", action="store_true",
                     help="Documentación as-built para postventa: el inventario es el del entorno YA implantado")
     ap.add_argument("--hoja-config", metavar="XLSX",
@@ -31,7 +34,8 @@ def build_parser():
     ap.add_argument("--pve", help="Versión de Proxmox VE de destino (p. ej. 9.1)")
     ap.add_argument("--sin-pbs", action="store_true", help="No incluir Proxmox Backup Server")
     ap.add_argument("--catalogo", help="JSON con un catálogo de hardware propio")
-    ap.add_argument("--sin-word", action="store_true", help="No generar el documento de diseño para el cliente")
+    ap.add_argument("--sin-word", action="store_true", help="No generar el documento Word (diseño para el cliente o informe de análisis)")
+    ap.add_argument("--sin-excel", action="store_true", help="Solo análisis: no generar el Excel del informe")
     ap.add_argument("--graficos", action="store_true", help="Guardar también los gráficos PNG")
     ap.add_argument("--guardar-escenario", metavar="RUTA", help="Guarda el escenario usado (útil como plantilla)")
     ap.add_argument("-q", "--quiet", action="store_true")
@@ -41,6 +45,8 @@ def build_parser():
 
 def main(argv=None):
     a = build_parser().parse_args(argv)
+    if a.analisis:
+        return _analysis(a)
     if a.asbuilt:
         return _asbuilt(a)
     sc = load_scenario(a.escenario) if a.escenario else new()
@@ -80,6 +86,34 @@ def main(argv=None):
         for p in out:
             print("Generado:", p)
     return 0 if plan.eval["ok"] else 1
+
+
+def _analysis(a):
+    from .assessment import Assessment
+    from .report_assessment import generate
+    try:
+        sheets = load(a.inventario)
+        for w in format_warnings(sheets):
+            print("Aviso:", w, file=sys.stderr)
+    except (InventoryError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    if a.sin_word and a.sin_excel:
+        print("Error: con --sin-word y --sin-excel no se generaría nada.", file=sys.stderr)
+        return 2
+    an = Assessment(sheets, a.cliente or "", a.autor or "")
+    name = a.nombre if a.nombre != "plan_migracion" else "analisis_infraestructura"
+    try:
+        out = generate(an, a.salida, name, docx=not a.sin_word, xlsx=not a.sin_excel, charts=a.graficos)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Error al generar: {exc}", file=sys.stderr)
+        return 2
+    if not a.quiet:
+        print(an.text_summary())
+        print()
+        for p in out:
+            print("Generado:", p)
+    return 0
 
 
 def _asbuilt(a):
