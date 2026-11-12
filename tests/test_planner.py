@@ -157,3 +157,12 @@ def test_config_sheet_and_asbuilt():
     assert wb["Networks"]["G4"].value.endswith("GbE")
     doc = to_asbuilt_docx(sample_sheets(), os.path.join(d, "ab.docx"), "Acme", "PS", out)
     assert os.path.getsize(doc) > 10000
+
+
+def test_loader_damaged_file_message():
+    from pvemigplan.loader import InventoryError
+    p = os.path.join(tempfile.mkdtemp(), "roto.xlsx")
+    with open(p, "wb") as f:
+        f.write(b"\0" * 1000)
+    with pytest.raises(InventoryError, match="vacío"):
+        load(p)

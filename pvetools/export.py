@@ -31,7 +31,7 @@ def columns(rows: list[dict], sheet: str | None = None) -> list[str]:
 
 def to_xlsx(sheets: dict, path: str):
     wb = Workbook()
-    _notice_sheet(wb.active)
+    _notice_sheet(wb.active, is_anonymized(sheets))
     for name, rows in sheets.items():
         ws = wb.create_sheet(name[:31])
         cols = columns(rows, name)
@@ -60,7 +60,16 @@ def to_xlsx(sheets: dict, path: str):
     return path
 
 
-def _notice_sheet(ws):
+ANON_NOTICE = ("INVENTARIO ANONIMIZADO: los nombres de clústeres, nodos, VMs, almacenamientos, usuarios, dominios, etc. "
+               "se han sustituido por seudónimos y las IPs/MACs están transformadas. La correspondencia con los "
+               "valores reales solo está en el fichero de correspondencia que conserva el cliente.")
+
+
+def is_anonymized(sheets: dict) -> bool:
+    return any(str(r.get("Anonimizado") or "").startswith("Sí") for r in sheets.get("vSource", []))
+
+
+def _notice_sheet(ws, anon: bool = False):
     """Primera hoja: logo y aviso de uso."""
     import datetime as dt
     ws.title = "Aviso"
@@ -80,6 +89,11 @@ def _notice_sheet(ws):
     ws.cell(row + 1, 1, f"Generado: {dt.datetime.now():%Y-%m-%d %H:%M:%S} · Versión de formato: {FORMAT_VERSION}").font = \
         Font(italic=True, color="666666")
     r = row + 3
+    if anon:
+        ws.cell(r, 1, ANON_NOTICE).font = Font(bold=True, color="C00000")
+        ws.cell(r, 1).alignment = Alignment(wrap_text=True, vertical="top")
+        ws.row_dimensions[r].height = 45
+        r += 2
     for line in DISCLAIMER.split("\n"):
         c = ws.cell(r, 1, line)
         c.alignment = Alignment(wrap_text=True, vertical="top")
@@ -102,6 +116,9 @@ def to_csv(sheets: dict, folder: str, prefix: str = ""):
         paths.append(p)
     p = os.path.join(folder, f"{prefix}LEEME_AVISO.txt")
     with open(p, "w", encoding="utf-8-sig") as f:
-        f.write(f"{APP_NAME} {__version__} - {COMPANY}\n\n{DISCLAIMER}\n")
+        f.write(f"{APP_NAME} {__version__} - {COMPANY}\n\n")
+        if is_anonymized(sheets):
+            f.write(ANON_NOTICE + "\n\n")
+        f.write(DISCLAIMER + "\n")
     paths.append(p)
     return paths
