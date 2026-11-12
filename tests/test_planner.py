@@ -181,15 +181,21 @@ def test_solo_analisis_informe():
     assert any(f["Categoría"] == "Versiones" for f in a.findings)       # PVE 7.4 sin soporte
     assert sum(a.backup_age().values()) == len(a.an.guests)
     d = tempfile.mkdtemp()
-    out = generate(a, d, "inf", charts=True)
-    assert [os.path.basename(p) for p in out] == ["inf.docx", "inf.xlsx"]
-    assert len(os.listdir(os.path.join(d, "inf_graficos"))) >= 10
-    wb = load_workbook(out[1], read_only=True)
+    xl = generate(a, d, "inf", docx=False)[0]
+    wb = load_workbook(xl, read_only=True)
     assert {"Resumen", "Hallazgos", "Uso por nodo", "VMs"} <= set(wb.sheetnames)
     assert not any("ola" in s.lower() or "destino" in s.lower() for s in wb.sheetnames)
-    from docx import Document
-    text = "\n".join(p.text for p in Document(out[0]).paragraphs).lower()
-    assert "hallazgos" in text and "ola " not in text and "plan de migración" not in text
+    try:  # el Word necesita python-docx y matplotlib (no están en el CI del inventario)
+        import docx  # noqa: F401
+        import matplotlib  # noqa: F401
+    except ImportError:
+        docx = None
+    if docx:
+        out = generate(a, d, "inf", xlsx=False, charts=True)
+        assert len(os.listdir(os.path.join(d, "inf_graficos"))) >= 10
+        from docx import Document
+        text = "\n".join(p.text for p in Document(out[0]).paragraphs).lower()
+        assert "hallazgos" in text and "ola " not in text and "plan de migración" not in text
     # CLI con un inventario anonimizado
     from pvetools.anonymize import Anonymizer
     inv = os.path.join(d, "inv.xlsx")
