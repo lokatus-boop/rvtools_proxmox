@@ -96,3 +96,41 @@ def test_sdn_collected():
     assert objs[("IPAM", "netbox1")]["URL / servidor"] == "https://ipam01.cliente.local/api"
     assert "SECRETO" not in str(sheets["vSDNObj"])
     assert any(h["Objeto"] == "SDN" and "pendientes de aplicar" in h["Mensaje"] for h in sheets["vHealth"])
+
+
+def test_password_login_with_2fa():
+    """Cuentas con 2FA: desafío de PVE + segunda llamada con «totp:<código>» o «recovery:<código>»."""
+    import pytest
+    from pvetools.api import PVEClient, PVETFAError, tfa_methods, tfa_response
+    sa = serve(mock_pve.standalone_data())
+    assert tfa_methods(mock_pve.Handler.TFA_USERS["tfa@pam"]["challenge"]) == ["totp", "recovery"]
+    assert tfa_response(" 123 456 ", ["totp"]) == "totp:123456"
+    assert tfa_response("abcd-ef01-2345-6789", ["totp", "recovery"]) == "recovery:abcd-ef01-2345-6789"
+
+    # código indicado de antemano (--totp)
+    api = PVEClient(host=sa, user="tfa@pam", password="pw", otp="123456")
+    assert api.get("version")["version"] == "8.4.1" and api.auth_method == "Contraseña + 2FA (TOTP)"
+    # código de recuperación
+    assert PVEClient(host=sa, user="tfa@pam", password="pw", otp="abcd-ef01-2345-6789").auth_method.endswith("(código de recuperación)")
+    # se pide con el callback; el primer código es erróneo y se vuelve a pedir con el motivo
+    asked = []
+
+    def ask(host, user, methods, error):
+        asked.append(error)
+        return "000000" if len(asked) == 1 else "123456"
+    assert PVEClient(host=sa, user="tfa@pam", password="pw", tfa_callback=ask).get("version")
+    assert asked[0] is None and "rechazado" in asked[1]
+    # sin código ni forma de pedirlo -> mensaje claro que recomienda API token
+    with pytest.raises(PVETFAError, match="API token"):
+        PVEClient(host=sa, user="tfa@pam", password="pw")
+    with pytest.raises(PVETFAError, match="cancelado"):
+        PVEClient(host=sa, user="tfa@pam", password="pw", tfa_callback=lambda *a: None)
+    with pytest.raises(PVETFAError, match="rechazado"):
+        PVEClient(host=sa, user="tfa@pam", password="pw", otp="999999")
+    # solo llave FIDO/WebAuthn -> no se puede, recomendar token
+    with pytest.raises(PVETFAError, match="WebAuthn.*API token"):
+        PVEClient(host=sa, user="fido@pam", password="pw", tfa_callback=ask)
+    # en el inventario queda anotado cómo se autenticó
+    sheets = Inventory().collect([{"host": sa, "user": "tfa@pam", "password": "pw", "otp": "123456"}])
+    assert sheets["vSource"][0]["Estado"] == "OK"
+    assert sheets["vSource"][0]["Autenticación"] == "Contraseña + 2FA (TOTP)"

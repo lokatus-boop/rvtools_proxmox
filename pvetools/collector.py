@@ -121,7 +121,8 @@ class Inventory:
 
     # ---------------------------------------------------------------- entrada
     def collect(self, connections: list[dict]):
-        """connections: lista de kwargs para PVEClient (host, user, password|token_id+token_secret, verify_ssl)."""
+        """connections: lista de kwargs para PVEClient (host, user, password|token_id+token_secret, verify_ssl,
+        y opcionalmente otp / tfa_callback para cuentas con 2FA)."""
         for conn in connections:
             host = conn["host"]
             started = time.time()
@@ -132,6 +133,7 @@ class Inventory:
             try:
                 self.progress(f"Conectando a {host}…")
                 api = PVEClient(**conn)
+                src["Autenticación"] = api.auth_method
                 ver = api.get("version")
                 src["Versión PVE"] = ver.get("version")
                 cluster_name, skipped = self._collect_one(api, host)
