@@ -208,7 +208,7 @@ def test_solo_analisis_informe():
 def test_sdn_en_informes():
     """El SDN del inventario aparece en el análisis, en el plan (correspondencia de redes) y en los comandos de la guía."""
     from pvemigplan.assessment import Assessment
-    from pvemigplan.report_impl import sdn_commands
+    from pvemigplan.sdn_commands import sdn_commands
     sh = sample_sheets()
     a = Assessment(sh, "Cliente", "Autor")
     sdn = a.an.sdn()
