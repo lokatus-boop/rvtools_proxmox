@@ -22,6 +22,7 @@ SHEET_DESCRIPTIONS = {
     'vBridge': 'Bridges Linux/OVS',
     'vHostVLAN': 'Interfaces VLAN de los nodos',
     'vSDN': 'SDN: una fila por subred (o VNet/zona sin subred)',
+    'vSDNObj': 'SDN: controladores (EVPN/BGP/ISIS), IPAM, DNS y fabrics',
     'vCorosync': 'Enlaces corosync por nodo',
     'vDatastore': 'Un almacenamiento por nodo y fila',
     'vPhysicalDisk': 'Discos físicos de los nodos',
@@ -108,7 +109,12 @@ SCHEMA = {
     ],
     'vSDN': [
         'Clúster', 'Zona', 'Tipo zona', 'Bridge zona', 'Nodos zona', 'MTU', 'IPAM', 'VNet', 'Alias', 'Tag / VNI',
-        'VLAN aware', 'Subred', 'Gateway', 'SNAT', 'Rango DHCP', 'Pendiente de aplicar',
+        'VLAN aware', 'Subred', 'Gateway', 'SNAT', 'Rango DHCP', 'Pendiente de aplicar', 'Controlador', 'Peers VXLAN',
+        'Exit nodes', 'VRF VXLAN', 'Servicio VLAN (QinQ)', 'Fabric', 'DNS', 'DNS inverso', 'Zona DNS', 'DHCP',
+        'Aislar puertos', 'Servidor DNS (DHCP)', 'NICs de VMs/CTs',
+    ],
+    'vSDNObj': [
+        'Clúster', 'Objeto', 'Nombre', 'Tipo', 'Nodo', 'ASN', 'Peers', 'URL / servidor', 'Detalles', 'Pendiente de aplicar',
     ],
     'vCorosync': [
         'Clúster', 'Nodo', 'Node ID', 'Votos', 'Enlaces', 'Direcciones', 'Modo enlaces', 'Versión config',

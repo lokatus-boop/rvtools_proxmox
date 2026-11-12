@@ -98,7 +98,18 @@ soporte o próximas a fin de soporte (6: jul-2022, 7: jul-2024, 8: ago-2026), us
 encendidas mayor que la física, clúster que no resiste la caída del nodo mayor (memoria > 90 % en el resto), desequilibrio
 de memoria entre nodos, clústeres de 2 nodos sin QDevice, nodos independientes, SO invitados antiguos, passthrough, CPU
 «host» con fabricantes mezclados, sin trabajos de backup o con backup a almacenamiento local, clústeres sin HA y VMs muy
-grandes respecto al nodo.
+grandes respecto al nodo. De SDN: cambios pendientes de aplicar, VNets sin VMs, zonas EVPN con menos de dos exit nodes,
+SNAT en zonas simples, VMs en redes que el inventario no ve (falta el permiso SDN.Audit) y clústeres de 3 o más nodos con
+varias VLANs y sin SDN.
+
+### SDN
+
+Si el inventario trae SDN (hojas vSDN y vSDNObj), todos los documentos lo muestran: zonas (tipo, bridge/peers/controlador,
+exit nodes, MTU, IPAM/DNS), VNets con sus subredes, gateway, SNAT, DHCP y nº de NICs de VMs conectadas, y controladores
+EVPN/BGP/ISIS, IPAM y DNS externos y fabrics. El informe de solo análisis y el as-built lo describen; el diseño para el cliente
+explica cómo se recrea en el nuevo clúster y la guía de implementación incluye los comandos `pvesh` para recrear zonas,
+VNets, subredes, controladores, IPAM y DNS (tokens, claves e IPs de los nodos nuevos quedan como `<…>`). Las VLANs de las
+VMs que hoy no están en SDN se proponen como una zona VLAN con una VNet por VLAN.
 
 Código de salida: 0 plan correcto, 1 el hardware no cubre las necesidades, 2 error.
 

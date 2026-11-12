@@ -47,7 +47,7 @@ class Doc:
         st = self.d.styles["Normal"]
         st.font.name = "Calibri"
         st.font.size = Pt(10.5)
-        for name, size in (("Heading 1", 16), ("Heading 2", 13), ("Heading 3", 11)):
+        for name, size in (("Heading 1", 16), ("Heading 2", 13), ("Heading 3", 11), ("Heading 4", 10)):
             s = self.d.styles[name]
             s.font.color.rgb = BRAND
             s.font.size = Pt(size)
@@ -139,6 +139,21 @@ class Doc:
                     row.cells[i].width = Cm(w)
         self.d.add_paragraph()
         return t
+
+    def sdn_tables(self, an, level=3, size=7.5):
+        """Tablas de la configuración SDN del inventario (zonas, VNets/subredes y controladores/IPAM/DNS/fabrics)."""
+        t = an.sdn_tables()
+        for key, title in (("zones", "Zonas SDN"), ("vnets", "VNets y subredes SDN"),
+                           ("objects", "Controladores, IPAM, DNS y fabrics de SDN")):
+            rows = t[key]
+            if key == "objects":
+                rows = [r for r in rows if not (r["Objeto"] == "IPAM" and r["Tipo"] == "pve")]
+            if not rows:
+                continue
+            cols = [c for c in rows[0] if any(r.get(c) not in (None, "") for r in rows) and not (key == "vnets" and c == "Tipo zona")]
+            self.h(title, level)
+            self.table(cols, [[r.get(c) for c in cols] for r in rows], size=size)
+        return bool(t["zones"] or t["objects"])
 
     def kv(self, pairs, size=9.5):
         t = self.d.add_table(rows=0, cols=2)
@@ -373,10 +388,45 @@ class Doc:
                    [[r["Host Link"], r["Adapter"], r["Port No."], r["Device Name"], r["Bond No."], r["Usage"]] for r in net.host_ports], size=8)
         if plan.vlan_map:
             self.h("Correspondencia de redes de las VMs", 3)
-            self.p("Las redes que usan hoy las VMs se recrean en el nuevo clúster con la misma VLAN, de modo que las VMs conservan "
-                   "su direccionamiento IP. Se recomienda definirlas como VNets de SDN (zona VLAN) para gestionarlas a nivel de clúster.")
+            self.p("Las redes que usan hoy las VMs se recrean en el nuevo clúster con la misma VLAN (o la misma VNet de SDN), de "
+                   "modo que las VMs conservan su direccionamiento IP. Se recomienda definirlas como VNets de SDN para "
+                   "gestionarlas a nivel de clúster.")
             self.table(["Bridge origen", "VLAN", "Clústeres", "NICs", "Destino propuesto"],
                        [[r["Bridge origen"], r["VLAN origen"], r["Clústeres"], r["NICs de VMs"], r["Destino propuesto"]] for r in plan.vlan_map], size=8)
+        an = plan.an
+        self.h("SDN (Software Defined Network)", 3)
+        if an.has_sdn():
+            sdn = an.sdn()
+            types = {z["type"] for z in sdn["zones"]}
+            self.p(f"El entorno actual tiene SDN configurado ({an.sdn_summary()}). La misma configuración (zonas, VNets, "
+                   "subredes, IPAM y DNS) se recrea en el nuevo clúster antes de migrar, con los mismos nombres, tags/VNI y "
+                   "subredes, de modo que las VMs siguen conectadas a la misma VNet y conservan su direccionamiento IP.")
+            notes = []
+            if types & {"vlan", "qinq"}:
+                notes.append("Zonas VLAN/QinQ: se asocian al bridge de las VMs del nuevo diseño (vmbr1); las VLANs deben estar "
+                             "permitidas en los puertos de los switches de servicio.")
+            if "vxlan" in types:
+                notes.append("Zonas VXLAN: la lista de peers pasa a ser las IPs de los nodos nuevos; la MTU de la red física debe "
+                             "admitir los 50 bytes de cabecera VXLAN (MTU de las VMs 1450 o jumbo frames en la red).")
+            if "evpn" in types:
+                notes.append("Zonas EVPN: hay que recrear el controlador EVPN (ASN y peers con las IPs de los nodos nuevos), elegir "
+                             "los exit nodes entre los nodos nuevos y, si hay peering BGP con los routers del cliente, revisarlo con "
+                             "el equipo de red.")
+            if "simple" in types:
+                notes.append("Zonas simples: son locales a cada nodo; si sus subredes usan SNAT, la VM sale con la IP del nodo "
+                             "donde se ejecuta.")
+            if any(o["object"] in ("IPAM", "DNS") and o["type"] != "pve" for o in sdn["objects"]):
+                notes.append("IPAM/DNS externos (NetBox, phpIPAM, PowerDNS): el nuevo clúster necesita acceso a esos servicios y un "
+                             "token/clave propios.")
+            if any(o["object"].startswith(("Fabric", "Nodo de fabric")) for o in sdn["objects"]):
+                notes.append("Fabrics SDN (Proxmox VE 9): se definen de nuevo con las interfaces e IPs de los nodos nuevos.")
+            if notes:
+                self.bullets(notes)
+            self.sdn_tables(an, level=4)
+        else:
+            self.p("El entorno actual no tiene SDN configurado: las VMs se conectan directamente a los bridges de cada nodo. "
+                   "En el nuevo clúster se propone una zona SDN de tipo VLAN con una VNet por cada VLAN de la tabla anterior, "
+                   "para que las redes se definan una sola vez para todo el clúster.")
         subnets = plan.an.subnets()
         if subnets:
             self.p("Subredes de los servidores actuales (referencia para el plan de direccionamiento): " + ", ".join(subnets[:20]) + ".")

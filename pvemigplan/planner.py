@@ -15,6 +15,22 @@ TEST_TAGS = re.compile(r"(test|dev|pre|lab|demo|qa|sandbox|temp)", re.I)
 BLOQUEO, AVISO, INFO = "BLOQUEO", "AVISO", "INFO"
 
 
+def sdn_target(v) -> str:
+    """Destino de una red de VMs que en origen es una VNet de SDN: se recrea la misma zona y VNet."""
+    t, z, n, tag = v["zone_type"], v["zone"], v["bridge"], v["sdn_tag"]
+    if t == "vlan":
+        return f"SDN zona {z} (VLAN) sobre vmbr1 · VNet {n}, tag {tag}"
+    if t == "qinq":
+        return f"SDN zona {z} (QinQ) sobre vmbr1 · VNet {n}, tag {tag}"
+    if t == "vxlan":
+        return f"SDN zona {z} (VXLAN, peers = IPs de los nodos nuevos) · VNet {n}, VNI {tag}"
+    if t == "evpn":
+        return f"SDN zona {z} (EVPN" + (f", controlador {v['controller']}" if v.get("controller") else "") + f") · VNet {n}, VNI {tag}"
+    if t == "simple":
+        return f"SDN zona {z} (simple, local a cada nodo) · VNet {n}"
+    return f"SDN VNet {n}" + (f" (tag {tag})" if tag else "")
+
+
 class PlanError(Exception):
     pass
 
@@ -98,7 +114,7 @@ class Plan:
         rows = []
         for v in self.an.vlan_usage():
             if v["sdn"]:
-                target = f"SDN VNet {v['bridge']} (tag {v['sdn_tag']})"
+                target = sdn_target(v)
             elif v["vlan"]:
                 target = f"vmbr1 · VLAN {v['vlan']}  (o VNet SDN «vlan{v['vlan']}»)"
             else:
@@ -106,7 +122,7 @@ class Plan:
             rows.append({"Bridge origen": v["bridge"], "VLAN origen": v["vlan"] or "(sin etiqueta)",
                          "Clústeres": ", ".join(v["clusters"]), "NICs de VMs": v["vms"],
                          "SDN origen": f"{v['zone']} / {v['subnet'] or ''}" if v["sdn"] else "",
-                         "Destino propuesto": target})
+                         "Destino propuesto": target, "Tipo zona SDN origen": v["zone_type"]})
         return rows
 
     # ------------------------------------------------------------------ riesgos

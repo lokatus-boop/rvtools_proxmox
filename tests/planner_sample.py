@@ -32,8 +32,22 @@ def sample_sheets(seed=7, n_guests=120):
         else:
             sh["vDatastore"].append(_row("vDatastore", **{"Clúster": c, "Nodo": "pve-dmz", "Almacenamiento": "local-zfs", "Tipo": "zfspool",
                                                           "Compartido": "No", "Total (GiB)": 3500.0, "Usado (GiB)": 1900.0, "Uso (%)": 54.0}))
-    sh["vSDN"].append(_row("vSDN", **{"Clúster": "CLU-PROD", "Zona": "zvlan", "Tipo zona": "vlan", "VNet": "vnet100", "Tag / VNI": 100,
-                                      "Subred": "192.168.100.0/24"}))
+    sh["vSDN"].append(_row("vSDN", **{"Clúster": "CLU-PROD", "Zona": "zvlan", "Tipo zona": "vlan", "Bridge zona": "vmbr0", "IPAM": "pve",
+                                      "VNet": "vnet100", "Tag / VNI": 100, "Subred": "192.168.100.0/24",
+                                      "Gateway": "192.168.100.1", "SNAT": "No", "Pendiente de aplicar": "No"}))
+    for vnet, vni, sub, pend in (("tenant1", 11000, "10.50.0.0/24", "No"), ("tenant2", 11001, "10.51.0.0/24", "Sí (nuevo)")):
+        sh["vSDN"].append(_row("vSDN", **{"Clúster": "CLU-PROD", "Zona": "evpn1", "Tipo zona": "evpn", "MTU": 1450, "IPAM": "netbox1",
+                                          "VNet": vnet, "Tag / VNI": vni, "Subred": sub, "Gateway": sub.replace("0/24", "1"),
+                                          "Rango DHCP": sub.replace("0/24", "100") + "-" + sub.replace("0/24", "200"),
+                                          "Pendiente de aplicar": pend, "Controlador": "evpnctl", "Exit nodes": "pve1",
+                                          "VRF VXLAN": 10000, "DNS": "pdns", "Zona DNS": "cliente.local"}))
+    sh["vSDNObj"].append(_row("vSDNObj", **{"Clúster": "CLU-PROD", "Objeto": "Controlador", "Nombre": "evpnctl", "Tipo": "evpn",
+                                            "ASN": 65000, "Peers": "10.0.0.11,10.0.0.12,10.0.0.13,10.0.0.14", "Pendiente de aplicar": "No"}))
+    sh["vSDNObj"].append(_row("vSDNObj", **{"Clúster": "CLU-PROD", "Objeto": "IPAM", "Nombre": "netbox1", "Tipo": "netbox",
+                                            "URL / servidor": "https://ipam01.cliente.local/api", "Pendiente de aplicar": "No"}))
+    sh["vSDNObj"].append(_row("vSDNObj", **{"Clúster": "CLU-PROD", "Objeto": "DNS", "Nombre": "pdns", "Tipo": "powerdns",
+                                            "URL / servidor": "http://10.0.0.53:8081/api/v1/servers/localhost",
+                                            "Detalles": "ttl=3600", "Pendiente de aplicar": "No"}))
     names = ["web", "app", "db", "sql", "dc", "file", "mail", "erp", "test", "dev", "mon", "proxy", "ci", "vdi"]
     oss = ["l26"] * 5 + ["win10", "win11", "win11", "win8", "w2k8"]
     for i in range(n_guests):

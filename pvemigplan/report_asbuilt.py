@@ -71,6 +71,7 @@ class AsBuiltDoc(Doc):
             ("Máquinas virtuales", f"{t['vms']} VMs y {t['cts']} contenedores ({t['running']} encendidos)"),
             ("Almacenamiento", ", ".join(sorted({f"{r['Almacenamiento']} ({r['Tipo']})" for r in an.storage_usage()})) or "—"),
             ("Ceph", "Sí" if an.has_ceph() else "No"),
+            ("SDN", an.sdn_summary()),
             ("Backup", f"{len(sh.get('vBackup', []))} job(s)" + (" · Proxmox Backup Server" if an.backup_summary()["uses_pbs"] else "")),
         ])
         if clusters:
@@ -102,10 +103,12 @@ class AsBuiltDoc(Doc):
             self.h("Interfaces VLAN", 3)
             self.table(["Nodo", "Interfaz", "VLAN", "Dispositivo", "CIDR", "MTU"],
                        self.rows("vHostVLAN", ["Nodo", "Interfaz", "VLAN id", "Dispositivo base", "CIDR", "MTU"]), size=7.5)
-        if sh.get("vSDN"):
+        if an.has_sdn():
             self.h("SDN", 3)
-            self.table(["Zona", "Tipo", "Bridge", "VNet", "Alias", "Tag", "Subred", "Gateway"],
-                       self.rows("vSDN", ["Zona", "Tipo zona", "Bridge zona", "VNet", "Alias", "Tag / VNI", "Subred", "Gateway"]), size=7.5)
+            self.p(f"Configuración SDN: {an.sdn_summary()}.")
+            self.sdn_tables(an, level=4)
+        else:
+            self.p("SDN: no configurado.")
         if sh.get("vCorosync"):
             self.h("Corosync", 3)
             self.table(["Nodo", "ID", "Votos", "Enlaces", "Direcciones"],

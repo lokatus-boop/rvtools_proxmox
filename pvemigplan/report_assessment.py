@@ -50,6 +50,7 @@ def to_assessment_xlsx(a: Assessment, path):
         ("VMs", t["vms"]), ("Contenedores", t["cts"]), ("Encendidas", t["running"]), ("Plantillas", a.templates),
         ("vCPU asignadas", t["vcpu"]), ("RAM asignada (GiB)", round(t["ram_gib"])),
         ("Disco aprovisionado (TiB)", round(t["disk_prov_gib"] / 1024, 2)),
+        ("SDN", an.sdn_summary()),
         ("Hallazgos críticos", a.severity_counts().get(CRIT, 0)), ("Avisos", a.severity_counts().get(WARN, 0)),
         ("Informativos", a.severity_counts().get(INFO, 0)), ("Valoración global", a.score()),
     ], "Informe de la infraestructura actual")
@@ -64,7 +65,14 @@ def to_assessment_xlsx(a: Assessment, path):
     _table(wb, "Por clúster", an.by_cluster())
     _table(wb, "Almacenamiento", an.storage_usage())
     _table(wb, "Redes de VMs", [{"Bridge": r["bridge"], "VLAN": r["vlan"], "VMs/CTs": r["vms"], "Clústeres": ", ".join(r["clusters"]),
-                                 "SDN": "Sí" if r["sdn"] else "", "Subred SDN": r["subnet"]} for r in an.vlan_usage()])
+                                 "SDN": "Sí" if r["sdn"] else "", "Zona SDN": r["zone"], "Tipo zona": r["zone_type"],
+                                 "Tag / VNI": r["sdn_tag"], "Subred SDN": r["subnet"]} for r in an.vlan_usage()])
+    if an.has_sdn():
+        sdn = an.sdn_tables()
+        _table(wb, "SDN zonas", sdn["zones"], {"Red / underlay": 50, "IPAM / DNS": 40})
+        _table(wb, "SDN VNets", sdn["vnets"])
+        if sdn["objects"]:
+            _table(wb, "SDN objetos", sdn["objects"], {"Detalles": 60})
     _table(wb, "Sistemas operativos", [{"Sistema operativo": k, "VMs/CTs": v} for k, v in an.os_detail().most_common()])
     _table(wb, "Antigüedad backup", [{"Antigüedad": k, "VMs/CTs": v} for k, v in a.backup_age().items()])
     _table(wb, "VMs", [{"Clúster": g.cluster, "Nodo": g.node, "VMID": g.vmid, "Nombre": g.name, "Tipo": g.kind,

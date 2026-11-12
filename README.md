@@ -40,7 +40,8 @@ El aviso se muestra al abrir la aplicación por primera vez (hay que aceptarlo),
 | **vBond** | Teaming: modo (802.3ad, active-backup…), esclavos, hash policy, primario y qué bridge lo usa |
 | **vBridge** | Bridges Linux/OVS: puertos, VLAN aware, VLANs permitidas, IP y cuántas NICs de VMs y qué VLANs cuelgan de él |
 | **vHostVLAN** | Interfaces VLAN de los nodos (eno1.50, vlan50…) |
-| **vSDN** | SDN: zonas, VNets, tags/VNI, subredes, gateway, SNAT, DHCP y cambios pendientes de aplicar |
+| **vSDN** | SDN: zonas (simple, VLAN, QinQ, VXLAN, EVPN), VNets, tags/VNI, subredes, gateway, SNAT, DHCP, controlador, exit nodes, peers, IPAM/DNS, NICs de VMs conectadas y cambios pendientes de aplicar |
+| **vSDNObj** | SDN: controladores (EVPN/BGP/ISIS), IPAM (pve, NetBox, phpIPAM), DNS (PowerDNS) y fabrics de PVE 9. Nunca se exportan tokens ni claves |
 | **vCorosync** | Red del clúster: enlaces corosync de cada nodo, votos, modo |
 | **vDatastore** | Almacenamientos por nodo: tipo, compartido, contenido, capacidad, uso |
 | **vZFS** | Pools ZFS: estado, tamaño, uso, fragmentación |
@@ -113,7 +114,7 @@ Para que el cliente pueda enviar el inventario sin datos identificativos, marca 
 *Exportar Excel…* / *Exportar CSV…* (o usa `--anonimizar` en la línea de comandos). El botón *¿Qué se anonimiza?* lo explica en la propia aplicación.
 
 * **Se sustituyen por seudónimos** los nombres de clústeres, nodos, VMs/CTs, hostnames, dominios, almacenamientos, pools,
-  etiquetas, usuarios, grupos, realms, zonas y VNets SDN, objetos de firewall, grupos HA, jobs, snapshots, ISOs, rutas y
+  etiquetas, usuarios, grupos, realms, zonas, VNets, controladores, IPAM y DNS de SDN, objetos de firewall, grupos HA, jobs, snapshots, ISOs, rutas y
   servidores de almacenamiento y nº de serie de discos (`CLUSTER-01`, `NODO-01`, `VM-0001`, `STORAGE-01`…). El mismo valor
   recibe siempre el mismo seudónimo en todas las hojas, así que las relaciones VM-nodo-red-almacenamiento se mantienen.
 * **IPs:** se transforman conservando la estructura de red (dos IPs de la misma subred siguen en la misma subred y la

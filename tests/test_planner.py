@@ -203,3 +203,43 @@ def test_solo_analisis_informe():
     assert main([inv, "--analisis", "-o", d, "-q", "--sin-word"]) == 0
     assert os.path.exists(os.path.join(d, "analisis_infraestructura.xlsx"))
     assert Assessment(load(inv)).anonymized
+
+
+def test_sdn_en_informes():
+    """El SDN del inventario aparece en el análisis, en el plan (correspondencia de redes) y en los comandos de la guía."""
+    from pvemigplan.assessment import Assessment
+    from pvemigplan.sdn_commands import sdn_commands
+    sh = sample_sheets()
+    a = Assessment(sh, "Cliente", "Autor")
+    sdn = a.an.sdn()
+    assert {z["zone"] for z in sdn["zones"]} == {"zvlan", "evpn1"}
+    assert {v["vnet"]: v["nics"] for v in sdn["vnets"]}["vnet100"] > 0
+    assert "2 zonas" in a.an.sdn_summary() and "3 VNets" in a.an.sdn_summary()
+    titles = {f["Hallazgo"] for f in a.findings}
+    assert "Zonas SDN EVPN con menos de dos exit nodes" in titles and "VNets de SDN sin ninguna VM/CT conectada" in titles
+    p = Plan(sh, scenario.new())
+    row = next(r for r in p.vlan_map if r["Bridge origen"] == "vnet100")
+    assert "zvlan" in row["Destino propuesto"] and row["Tipo zona SDN origen"] == "vlan"
+    cmds = sdn_commands(p)
+    for part in ("--controller evpnctl --type evpn --asn 65000", "--zone evpn1 --type evpn", "--vnet tenant1 --zone evpn1 --tag 11000",
+                 "--dhcp-range start-address=10.50.0.100,end-address=10.50.0.200", "--type netbox", "--token <TOKEN>",
+                 "--zone zvlan --type vlan --bridge vmbr1", "--zone vmnet --bridge vmbr1", "pvesh set /cluster/sdn"):
+        assert part in cmds, part
+    assert "vlan100" not in cmds  # la VLAN 100 ya es la VNet vnet100
+    sin = {k: (v if k not in ("vSDN", "vSDNObj") else []) for k, v in sh.items()}
+    a2 = Assessment(sin)
+    assert not a2.an.has_sdn() and a2.an.sdn_summary() == "sin SDN configurado"
+    assert "pvesh create /cluster/sdn/zones --type vlan --zone vmnet" in sdn_commands(Plan(sin, scenario.new()))
+    try:
+        import docx  # noqa: F401
+        import matplotlib  # noqa: F401
+    except ImportError:
+        return
+    from docx import Document
+
+    from pvemigplan.report_assessment import generate
+    d = tempfile.mkdtemp()
+    out = generate(a, d, "inf", xlsx=False)[0]
+    doc = Document(out)
+    text = "\n".join(p.text for p in doc.paragraphs) + "\n".join(c.text for t in doc.tables for r in t.rows for c in r.cells)
+    assert "Zonas SDN" in text and "evpnctl" in text and "tenant2" in text

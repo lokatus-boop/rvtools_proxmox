@@ -79,3 +79,20 @@ def test_export_matches_schema():
         for r in rows:
             extra = set(r) - set(SCHEMA[name])
             assert not extra, f"{name}: columnas fuera del formato {extra} (añádelas al final en schema.py)"
+
+
+def test_sdn_collected():
+    """SDN: zonas, VNets, subredes, controladores, IPAM y DNS (sin secretos) y NICs de VMs por VNet."""
+    tok = {"user": "auditor@pve", "token_id": "inv", "token_secret": "secret"}
+    sheets = Inventory().collect([{**tok, "host": serve(mock_pve.cluster_data())}])
+    sdn = {r["VNet"]: r for r in sheets["vSDN"]}
+    assert set(sdn) == {"vnet100", "tenant1", "(sin VNets)"}
+    assert sdn["vnet100"]["NICs de VMs/CTs"] == 1 and sdn["vnet100"]["SNAT"] == "Sí"
+    t = sdn["tenant1"]
+    assert (t["Tipo zona"], t["Controlador"], t["Exit nodes"], t["VRF VXLAN"]) == ("evpn", "evpnctl", "pve1,pve2", 10000)
+    assert t["Rango DHCP"] == "10.50.0.100-10.50.0.200" and t["Pendiente de aplicar"].startswith("Sí")
+    objs = {(r["Objeto"], r["Nombre"]): r for r in sheets["vSDNObj"]}
+    assert objs[("Controlador", "evpnctl")]["ASN"] == 65000
+    assert objs[("IPAM", "netbox1")]["URL / servidor"] == "https://ipam01.cliente.local/api"
+    assert "SECRETO" not in str(sheets["vSDNObj"])
+    assert any(h["Objeto"] == "SDN" and "pendientes de aplicar" in h["Mensaje"] for h in sheets["vHealth"])

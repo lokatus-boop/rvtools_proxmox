@@ -444,6 +444,36 @@ SDN: una fila por subred (o VNet/zona sin subred)
 | 14 | SNAT |
 | 15 | Rango DHCP |
 | 16 | Pendiente de aplicar |
+| 17 | Controlador |
+| 18 | Peers VXLAN |
+| 19 | Exit nodes |
+| 20 | VRF VXLAN |
+| 21 | Servicio VLAN (QinQ) |
+| 22 | Fabric |
+| 23 | DNS |
+| 24 | DNS inverso |
+| 25 | Zona DNS |
+| 26 | DHCP |
+| 27 | Aislar puertos |
+| 28 | Servidor DNS (DHCP) |
+| 29 | NICs de VMs/CTs |
+
+#### vSDNObj
+
+SDN: controladores (EVPN/BGP/ISIS), IPAM, DNS y fabrics
+
+| # | Columna |
+|---|---|
+| 1 | Clúster |
+| 2 | Objeto |
+| 3 | Nombre |
+| 4 | Tipo |
+| 5 | Nodo |
+| 6 | ASN |
+| 7 | Peers |
+| 8 | URL / servidor |
+| 9 | Detalles |
+| 10 | Pendiente de aplicar |
 
 #### vCorosync
 

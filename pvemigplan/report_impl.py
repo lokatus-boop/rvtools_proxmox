@@ -7,6 +7,7 @@ import tempfile
 from .branding import COMPANY
 from .config_sheet import defaults_from_inventory
 from .report_docx import GREY, Doc
+from .sdn_commands import sdn_commands
 from .scenario import PBS_VERSIONS, STORAGE_TYPES
 
 BLANK = "________"
@@ -128,15 +129,24 @@ class ImplDoc(Doc):
         self.code(self._storage_cmds(plan))
 
         # 8. SDN
-        if plan.vlan_map:
+        an = plan.an
+        if plan.vlan_map or an.has_sdn():
             self.h("8. Redes de las VMs (SDN)")
-            self.p("Crear una zona VLAN sobre vmbr1 y una VNet por cada VLAN usada por las VMs del entorno actual:")
-            lines = ["pvesh create /cluster/sdn/zones --type vlan --zone vmnet --bridge vmbr1"]
-            for v in sorted({r["VLAN origen"] for r in plan.vlan_map if str(r["VLAN origen"]).isdigit()}, key=int):
-                lines.append(f"pvesh create /cluster/sdn/vnets --vnet vlan{v} --zone vmnet --tag {v}")
-            lines.append("pvesh set /cluster/sdn   # aplicar")
-            self.code("\n".join(lines))
-            untagged = [r for r in plan.vlan_map if not str(r["VLAN origen"]).isdigit()]
+            if an.has_sdn():
+                self.p(f"El entorno actual tiene SDN ({an.sdn_summary()}). Se recrea con los mismos nombres, tags/VNI y subredes "
+                       "para que las VMs migradas se conecten a la misma VNet. Los valores entre < > se completan con los datos "
+                       "del nuevo entorno (IPs de los nodos, tokens y claves, que nunca se incluyen en el inventario).")
+                self.sdn_tables(an, level=3, size=7)
+            else:
+                self.p("Crear una zona VLAN sobre vmbr1 y una VNet por cada VLAN usada por las VMs del entorno actual:")
+            self.code(sdn_commands(plan))
+            checks = ["Datacenter → SDN: estado «available» en todos los nodos tras aplicar.",
+                      "Comprobar desde una VM de prueba en cada VNet: gateway, DNS y salida a la red."]
+            if any(z["type"] in ("evpn", "vxlan") for z in an.sdn()["zones"]):
+                checks.append("EVPN/VXLAN: «vtysh -c 'show bgp l2vpn evpn summary'» con todos los peers establecidos y MTU "
+                              "de la red física suficiente para VXLAN.")
+            self.checklist(checks)
+            untagged = [r for r in plan.vlan_map if not str(r["VLAN origen"]).isdigit() and not r.get("Tipo zona SDN origen")]
             if untagged:
                 self.p("Redes sin VLAN en origen (definir VLAN explícita con el cliente): "
                        + ", ".join(f"{r['Bridge origen']} ({r['NICs de VMs']} NICs)" for r in untagged) + ".")
@@ -288,3 +298,4 @@ class ImplDoc(Doc):
 
 def to_impl_docx(plan, path, charts_dir=None):
     return ImplDoc(plan).build(path, charts_dir)
+

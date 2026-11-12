@@ -181,6 +181,12 @@ def to_xlsx(plan, path):
     _table(wb, "Redes", [{"Red": n["red"], "Interfaz": n["interfaz"], "Puertos por nodo": n["puertos"], "Modo": n["modo"],
                           "VLAN": n["vlan"], "MTU": n["mtu"], "Notas": n["nota"]} for n in plan.networks])
     _table(wb, "VLANs", plan.vlan_map)
+    if plan.an.has_sdn():
+        sdn = plan.an.sdn_tables()
+        _table(wb, "SDN origen zonas", sdn["zones"], {"Red / underlay": 50, "IPAM / DNS": 40})
+        _table(wb, "SDN origen VNets", sdn["vnets"])
+        if sdn["objects"]:
+            _table(wb, "SDN origen objetos", sdn["objects"], {"Detalles": 60})
     _table(wb, "Switches", [{"Función": w["tipo"], "Suministra": w["suministra"], "Modelo": w["modelo"], "Nº switches": w["cantidad"],
                              "Puertos por switch": w["puertos_por_switch"], "Puertos necesarios": w["puertos_necesarios"],
                              "Velocidad": w["velocidad"], "Redundancia": w["redundancia"]} for w in plan.net.switches])

@@ -15,7 +15,7 @@ from .schema import FORMAT_VERSION
 from .api import PVEClient, PVEError, q
 
 SHEETS = ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough",
-          "vBackupStatus", "vHost", "vHostNIC", "vBond", "vBridge", "vHostVLAN", "vSDN", "vCorosync",
+          "vBackupStatus", "vHost", "vHostNIC", "vBond", "vBridge", "vHostVLAN", "vSDN", "vSDNObj", "vCorosync",
           "vDatastore", "vPhysicalDisk", "vZFS", "vCephOSD", "vCephPool", "vCluster", "vHA", "vBackup",
           "vReplication", "vFirewall", "vFirewallObj", "vUsers", "vACL", "vRepo", "vCert", "vTasks",
           "vHealth", "vSource"]
@@ -24,7 +24,7 @@ SHEETS = ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "
 SHEET_GROUPS = [
     ("Máquinas virtuales", ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough", "vBackupStatus"]),
     ("Hosts", ["vHost", "vPhysicalDisk", "vRepo", "vCert"]),
-    ("Red", ["vHostNIC", "vBond", "vBridge", "vHostVLAN", "vSDN", "vCorosync"]),
+    ("Red", ["vHostNIC", "vBond", "vBridge", "vHostVLAN", "vSDN", "vSDNObj", "vCorosync"]),
     ("Almacenamiento", ["vDatastore", "vZFS", "vCephOSD", "vCephPool"]),
     ("Clúster", ["vCluster", "vHA", "vBackup", "vReplication", "vTasks"]),
     ("Seguridad", ["vFirewall", "vFirewallObj", "vUsers", "vACL"]),
