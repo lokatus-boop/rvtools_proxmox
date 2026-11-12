@@ -153,6 +153,11 @@ def format_warnings(sheets: dict) -> list[str]:
     if versions and versions != {str(FORMAT_VERSION)}:
         warns.append(f"El inventario usa la versión de formato {', '.join(sorted(versions))} y esta herramienta "
                      f"espera la {FORMAT_VERSION}: revisa los resultados.")
+    anon = {str(r.get("Anonimizado") or "") for r in sheets.get("vSource", []) if r.get("Anonimizado")}
+    if any(a.startswith("Sí") for a in anon):
+        warns.append("Inventario anonimizado: los nombres (clústeres, nodos, VMs, almacenamientos…) son seudónimos y las "
+                     "IPs están transformadas. El cálculo no cambia; los documentos mostrarán los seudónimos. El cliente "
+                     "puede revertirlos con su fichero de correspondencia (PVE Inventory → «Revertir anonimización»).")
     for s in USEFUL:
         rows = sheets.get(s) or []
         if not rows:

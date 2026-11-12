@@ -40,7 +40,7 @@ SHEET_DESCRIPTIONS = {
     'vRepo': 'Repositorios APT de Proxmox',
     'vCert': 'Certificados de los nodos',
     'vHealth': 'Avisos calculados',
-    'vSource': 'Conexiones realizadas, versión de la herramienta y del formato',
+    'vSource': 'Conexiones realizadas, versión de la herramienta y del formato (y si el inventario está anonimizado)',
 }
 
 SCHEMA = {
@@ -179,6 +179,6 @@ SCHEMA = {
     ],
     'vSource': [
         'Host conectado', 'Usuario', 'Autenticación', 'Fecha', 'Versión herramienta', 'Versión formato',
-        'Versión PVE', 'Clúster / nodo', 'Estado', 'Duración (s)',
+        'Versión PVE', 'Clúster / nodo', 'Estado', 'Duración (s)', 'Anonimizado',
     ],
 }

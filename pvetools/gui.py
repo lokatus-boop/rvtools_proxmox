@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, DISCLAIMER_TITLE, DISCLAIMER_VERSION, SHORT_NOTICE, asset_path
 from .collector import SHEET_GROUPS, SHEETS, Inventory
+from .anonymize import Anonymizer, default_map_path, reverse_file
 from .export import columns, to_csv, to_xlsx
 
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"), "PVEInventory")
@@ -71,6 +72,8 @@ class App(tk.Tk):
         self.v_secret = tk.StringVar()
         self.v_verify = tk.BooleanVar(value=False)
         self.v_agent = tk.BooleanVar(value=True)
+        self.v_anon = tk.BooleanVar(value=False)
+        self.v_keepip = tk.BooleanVar(value=False)
 
         r = 0
         ttk.Label(top, text="Host / IP[:puerto]").grid(row=r, column=0, sticky="w", padx=4, pady=2)
@@ -108,6 +111,16 @@ class App(tk.Tk):
         ttk.Button(btns, text="Exportar CSV…", command=self._export_csv).pack(side="left", padx=4)
         ttk.Label(btns, text="Un nodo por clúster basta; los nodos sueltos, uno a uno.",
                   foreground="#555").pack(side="right", padx=4)
+        r += 1
+        anon = ttk.Frame(top)
+        anon.grid(row=r, column=0, columnspan=6, sticky="we", pady=(0, 4))
+        ttk.Checkbutton(anon, text="Anonimizar al exportar (nombres → seudónimos, IPs/MACs transformadas)",
+                        variable=self.v_anon, command=self._anon_changed).pack(side="left", padx=4)
+        self.chk_keepip = ttk.Checkbutton(anon, text="Conservar IPs", variable=self.v_keepip)
+        self.chk_keepip.pack(side="left", padx=8)
+        ttk.Button(anon, text="¿Qué se anonimiza?", command=self._anon_help).pack(side="left", padx=4)
+        ttk.Button(anon, text="Revertir anonimización…", command=self._revert).pack(side="left", padx=4)
+        self._anon_changed()
         r += 1
         self.conn_list = ttk.Treeview(top, columns=("host", "user", "auth"), show="headings", height=3)
         for c, t, w in (("host", "Host", 260), ("user", "Usuario / token", 260), ("auth", "Autenticación", 140)):
@@ -421,15 +434,41 @@ class App(tk.Tk):
             return False
         return True
 
+    def _anon_changed(self):
+        self.chk_keepip.configure(state="normal" if self.v_anon.get() else "disabled")
+
+    def _anon_help(self):
+        messagebox.showinfo(APP_NAME, ANON_HELP)
+
+    def _export_sheets(self, target: str):
+        """Hojas a exportar: las reales o, si se pidió, las anonimizadas (y guarda la correspondencia)."""
+        if not self.v_anon.get():
+            return self.sheets, None
+        map_path = default_map_path(target)
+        anon = Anonymizer.load(map_path, keep_ips=self.v_keepip.get()) if os.path.exists(map_path) \
+            else Anonymizer(keep_ips=self.v_keepip.get())
+        sheets = anon.anonymize(self.sheets)
+        anon.save(map_path)
+        return sheets, map_path
+
+    def _anon_done(self, what: str, map_path: str):
+        messagebox.showinfo(APP_NAME, f"{what} anonimizado guardado.\n\nLa correspondencia con los datos reales está en:\n"
+                                      f"{map_path}\n\nEse fichero es CONFIDENCIAL: guárdalo y NO lo envíes junto al "
+                                      "inventario. Sirve para revertir los seudónimos (botón «Revertir anonimización…»).")
+
     def _export_xlsx(self):
         if not self._need_data():
             return
-        default = f"pve_inventory_{dt.datetime.now():%Y%m%d_%H%M%S}.xlsx"
+        suffix = "_anonimo" if self.v_anon.get() else ""
+        default = f"pve_inventory_{dt.datetime.now():%Y%m%d_%H%M%S}{suffix}.xlsx"
         p = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=default,
                                          filetypes=[("Excel", "*.xlsx")])
         if p:
-            to_xlsx(self.sheets, p)
-            self.status.set(f"Excel guardado en {p}")
+            sheets, map_path = self._export_sheets(p)
+            to_xlsx(sheets, p)
+            self.status.set(f"Excel{' anonimizado' if map_path else ''} guardado en {p}")
+            if map_path:
+                self._anon_done("Excel", map_path)
             if os.name == "nt" and messagebox.askyesno(APP_NAME, "Excel guardado. ¿Abrirlo ahora?"):
                 os.startfile(p)  # noqa: S606
 
@@ -438,8 +477,44 @@ class App(tk.Tk):
             return
         d = filedialog.askdirectory()
         if d:
-            to_csv(self.sheets, d)
-            self.status.set(f"CSV guardados en {d}")
+            sheets, map_path = self._export_sheets(d)
+            to_csv(sheets, d)
+            self.status.set(f"CSV{' anonimizados' if map_path else ''} guardados en {d}")
+            if map_path:
+                self._anon_done("CSV", map_path)
+
+    def _revert(self):
+        files = filedialog.askopenfilenames(title="Excel/CSV anonimizado (inventario o plan) a revertir",
+                                            filetypes=[("Excel o CSV", "*.xlsx *.csv"), ("Todos", "*.*")])
+        if not files:
+            return
+        m = filedialog.askopenfilename(title="Fichero de correspondencia (…_correspondencia_CONFIDENCIAL.xlsx)",
+                                       filetypes=[("Excel", "*.xlsx")])
+        if not m:
+            return
+        try:
+            out = [reverse_file(f, m) for f in files]
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror(APP_NAME, f"No se pudo revertir: {e}")
+            return
+        self.status.set(f"Revertido: {', '.join(out)}")
+        messagebox.showinfo(APP_NAME, "Ficheros con los nombres reales:\n\n" + "\n".join(out) +
+                            "\n\nLos comentarios y descripciones que se vaciaron al anonimizar no se pueden recuperar.")
+
+
+ANON_HELP = (
+    "Al exportar con «Anonimizar», el Excel/CSV no contiene datos identificativos del cliente:\n\n"
+    "• Nombres de clústeres, nodos, VMs/CTs, hostnames, dominios, almacenamientos, pools, etiquetas, usuarios, "
+    "grupos, zonas/VNets SDN, objetos de firewall, snapshots, ISOs y nº de serie → seudónimos (CLUSTER-01, "
+    "NODO-01, VM-0001, STORAGE-01…). El mismo valor recibe siempre el mismo seudónimo en todas las hojas.\n"
+    "• IPs: se transforman conservando la estructura de red (subredes, gateways .1). MACs: se conserva el fabricante.\n"
+    "• Descripciones, comentarios, emails, alias SDN y huellas de certificados: se vacían.\n\n"
+    "Se conservan CPU, RAM, discos, tamaños, tipos de almacenamiento, SO, estados, versiones, VLANs, bridges "
+    "(vmbrN), los nombres por defecto de Proxmox (local, local-lvm, root@pam…) y las relaciones VM-nodo-red-"
+    "almacenamiento, de modo que el inventario anonimizado sirve igual para planificar la migración.\n\n"
+    "La correspondencia real ↔ seudónimo se guarda en un fichero aparte («…_correspondencia_CONFIDENCIAL.xlsx») "
+    "que se queda el cliente. Si exportas de nuevo con el mismo nombre, se reutiliza y los seudónimos no cambian."
+)
 
 
 def _sort_key(v):

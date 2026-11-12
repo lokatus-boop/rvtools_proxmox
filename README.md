@@ -105,7 +105,34 @@ pveinventory-cli.exe --host pve1.midominio.local --host pve-sa.midominio.local ^
     -o C:\Inventario\pve.xlsx --csv C:\Inventario\csv
 ```
 
-Opciones: `--password-env VAR` (contraseña desde una variable de entorno), `PVE_TOKEN_SECRET` (secreto desde una variable de entorno), `--no-agent` (más rápido, sin IPs de VMs), `--verify-ssl`. Código de salida: 0 todo OK, 1 alguna conexión falló, 2 fallaron todas.
+Opciones: `--password-env VAR` (contraseña desde una variable de entorno), `PVE_TOKEN_SECRET` (secreto desde una variable de entorno), `--no-agent` (más rápido, sin IPs de VMs), `--verify-ssl`, `--anonimizar` (ver más abajo). Código de salida: 0 todo OK, 1 alguna conexión falló, 2 fallaron todas.
+
+## Anonimizar el inventario
+
+Para que el cliente pueda enviar el inventario sin datos identificativos, marca **Anonimizar al exportar** antes de
+*Exportar Excel…* / *Exportar CSV…* (o usa `--anonimizar` en la línea de comandos). El botón *¿Qué se anonimiza?* lo explica en la propia aplicación.
+
+* **Se sustituyen por seudónimos** los nombres de clústeres, nodos, VMs/CTs, hostnames, dominios, almacenamientos, pools,
+  etiquetas, usuarios, grupos, realms, zonas y VNets SDN, objetos de firewall, grupos HA, jobs, snapshots, ISOs, rutas y
+  servidores de almacenamiento y nº de serie de discos (`CLUSTER-01`, `NODO-01`, `VM-0001`, `STORAGE-01`…). El mismo valor
+  recibe siempre el mismo seudónimo en todas las hojas, así que las relaciones VM-nodo-red-almacenamiento se mantienen.
+* **IPs:** se transforman conservando la estructura de red (dos IPs de la misma subred siguen en la misma subred y la
+  `.1` sigue siendo la `.1`). Con *Conservar IPs* / `--conservar-ips` no se tocan. **MACs:** se conserva el fabricante (OUI).
+* **Se vacían** descripciones, comentarios, emails, alias de SDN y huellas de certificados.
+* **Se conservan** CPU, RAM, discos y tamaños, tipos de almacenamiento, SO, estados, versiones, VLANs, bridges `vmbrN`,
+  los nombres por defecto de Proxmox (`local`, `local-lvm`, `rpool`, `root@pam`…) y una pista de rol en el seudónimo
+  (`-crit` si el nombre, pool o etiqueta parece crítico —db, sql, sap, dc…— y `-test` si parece de pruebas), que el
+  planificador usa para ordenar las olas. Con todo ello, **el planificador da exactamente el mismo plan** que con el inventario real.
+* **Correspondencia:** junto al export se guarda `<nombre>_correspondencia_CONFIDENCIAL.xlsx` con la tabla real ↔ seudónimo.
+  **Se la queda el cliente y no se envía.** Con *Revertir anonimización…* (o `--revertir FICHERO --correspondencia MAPA`)
+  el cliente puede devolver los nombres reales a cualquier Excel/CSV: el inventario anonimizado o el **Excel del plan de
+  migración** que le entreguemos. Si se reutiliza la misma correspondencia en otra exportación (`--correspondencia`), los
+  seudónimos no cambian, útil cuando se inventarían varios clústeres por separado.
+
+```bat
+pveinventory-cli.exe --host pve1 --user inventario@pve --token-id inv --token-secret XXXX --anonimizar -o inventario_anonimo.xlsx
+pveinventory-cli.exe --revertir plan_migracion.xlsx --correspondencia inventario_anonimo_correspondencia_CONFIDENCIAL.xlsx
+```
 
 ## Compilar el .exe
 

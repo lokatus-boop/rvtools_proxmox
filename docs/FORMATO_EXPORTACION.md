@@ -18,6 +18,9 @@ que los leen (por ejemplo, el planificador de migración). Se genera con `python
   * Los tamaños van en GiB o MiB, según indique la cabecera, y los porcentajes de 0 a 100.
 * La columna `Clúster` identifica el clúster, o `<nodo> (standalone)` si es un nodo independiente. Las VMs/CTs se
   identifican por (`Clúster`, `VMID`) y los nodos por (`Clúster`, `Nodo`).
+* **Inventario anonimizado:** la columna `Anonimizado` de *vSource* vale `Sí` (o `Sí (IPs conservadas)`). Los nombres
+  son seudónimos consistentes en todas las hojas (`CLUSTER-01`, `NODO-01`, `VM-0001`, `STORAGE-01`…; sufijos `-crit`/`-test`
+  como pista de rol), las IPs están transformadas conservando subredes y los textos libres vacíos. El resto de columnas no cambia.
 * **Estabilidad:**
   * No se renombran ni se eliminan columnas sin subir la versión de formato.
   * Las columnas nuevas se añaden al final de su hoja.
@@ -716,7 +719,7 @@ Avisos calculados
 
 #### vSource
 
-Conexiones realizadas, versión de la herramienta y del formato
+Conexiones realizadas, versión de la herramienta y del formato (y si el inventario está anonimizado)
 
 | # | Columna |
 |---|---|
@@ -730,3 +733,4 @@ Conexiones realizadas, versión de la herramienta y del formato
 | 8 | Clúster / nodo |
 | 9 | Estado |
 | 10 | Duración (s) |
+| 11 | Anonimizado |

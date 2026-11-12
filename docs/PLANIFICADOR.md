@@ -21,6 +21,11 @@ Se ejecuta en local, no se conecta a ningún servidor y no envía nada a la nube
 
 1. El cliente ejecuta **PVE Inventory** y nos devuelve el Excel (o la carpeta de CSV). Si tiene varios clústeres puede
    enviar un fichero por clúster: el planificador acepta varios y los une (sin duplicar VMs si un clúster se carga dos veces).
+   Si el cliente prefiere no enviar nombres ni IPs, puede exportarlo **anonimizado** (ver el README): el cálculo y el plan de
+   olas salen idénticos, el planificador avisa al cargarlo y los documentos muestran los seudónimos (`VM-0001`, `NODO-01`…).
+   En ese caso conviene rellenar a mano dominio, DNS y NTP en el paso 3 (si no, se tomarían los seudónimos del inventario).
+   El cliente puede devolver los nombres reales al Excel del plan con *Revertir anonimización…* de PVE Inventory y su
+   fichero de correspondencia.
 2. En **PVEMigrationPlanner.exe**:
    * **1 · Inventario:** cargar los ficheros, decidir si entran VMs apagadas y plantillas, y excluir VMs concretas (doble clic).
    * **2 · Destino:** datos del cliente, versión de Proxmox VE, tipo de almacenamiento, velocidad de red y criterios de dimensionado.
