@@ -148,7 +148,13 @@ def test_planner_reads_anonymized_export():
         assert len(p.an.subnets()) == len(pa.an.subnets())
         assert p.an.guest_storage_by_type() == pa.an.guest_storage_by_type()
         assert p.method["id"] == pa.method["id"]
-    files = generate(pb, os.path.join(d, "plan"))
+    try:  # los Word necesitan python-docx y matplotlib (requirements-planner.txt); el Excel no
+        import docx  # noqa: F401
+        import matplotlib  # noqa: F401
+        docs = True
+    except ImportError:
+        docs = False
+    files = generate(pb, os.path.join(d, "plan"), design=docs, impl=docs)
     assert files and all(os.path.getsize(f) > 0 for f in files)
     names = {g.name for g in pb.an.guests}
     assert names and all(n.startswith("VM-") for n in names)
