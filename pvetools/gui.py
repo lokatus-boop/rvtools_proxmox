@@ -505,7 +505,7 @@ class App(tk.Tk):
 ANON_HELP = (
     "Al exportar con «Anonimizar», el Excel/CSV no contiene datos identificativos del cliente:\n\n"
     "• Nombres de clústeres, nodos, VMs/CTs, hostnames, dominios, almacenamientos, pools, etiquetas, usuarios, "
-    "grupos, zonas/VNets SDN, objetos de firewall, snapshots, ISOs y nº de serie → seudónimos (CLUSTER-01, "
+    "grupos, zonas/VNets/controladores/IPAM/DNS de SDN, objetos de firewall, snapshots, ISOs y nº de serie → seudónimos (CLUSTER-01, "
     "NODO-01, VM-0001, STORAGE-01…). El mismo valor recibe siempre el mismo seudónimo en todas las hojas.\n"
     "• IPs: se transforman conservando la estructura de red (subredes, gateways .1). MACs: se conserva el fabricante.\n"
     "• Descripciones, comentarios, emails, alias SDN y huellas de certificados: se vacían.\n\n"

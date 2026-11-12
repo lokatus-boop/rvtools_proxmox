@@ -250,17 +250,110 @@ class Analysis:
                 k = (br, vlan or "")
                 use[k]["vms"].add(g.key)
                 use[k]["clusters"].add(g.cluster)
-        sdn = {}
-        for r in self.sheets.get("vSDN", []):
-            if r.get("VNet"):
-                sdn[r.get("VNet")] = r
+        vn = {(v["cluster"], v["vnet"]): v for v in self.sdn()["vnets"]}
         rows = []
         for (br, vlan), d in sorted(use.items(), key=lambda kv: (kv[0][0], int(kv[0][1]) if kv[0][1].isdigit() else -1)):
-            s = sdn.get(br)
+            s = next((vn[(c, br)] for c in sorted(d["clusters"]) if (c, br) in vn), None)
             rows.append({"bridge": br, "vlan": vlan, "vms": len(d["vms"]), "clusters": sorted(d["clusters"]),
-                         "sdn": bool(s), "sdn_tag": str(num(s.get("Tag / VNI"), "") or "") if s else "",
-                         "subnet": s.get("Subred") if s else "", "zone": s.get("Zona") if s else ""})
+                         "sdn": bool(s), "sdn_tag": s["tag"] if s else "",
+                         "subnet": ", ".join(x["cidr"] for x in s["subnets"] if x["cidr"]) if s else "",
+                         "zone": s["zone"] if s else "", "zone_type": s["zone_type"] if s else "",
+                         "controller": s["controller"] if s else ""})
         return rows
+
+    # -------------------------------------------------------------- SDN
+    def sdn(self) -> dict:
+        """SDN del inventario: zonas, VNets con sus subredes y NICs conectadas, y controladores/IPAM/DNS/fabrics."""
+        if getattr(self, "_sdn", None) is not None:
+            return self._sdn
+        nics = Counter()
+        for r in self.sheets.get("vNetwork", []):
+            if r.get("Bridge"):
+                nics[(r.get("Clúster"), r.get("Bridge"))] += 1
+        txt = lambda v: "" if v is None else (str(int(v)) if isinstance(v, float) and v.is_integer() else str(v).strip())  # noqa: E731
+        pend = lambda v: txt(v).lower().startswith(("sí", "si"))  # noqa: E731
+        zones, vnets = {}, {}
+        for r in self.sheets.get("vSDN", []):
+            c, zn = txt(r.get("Clúster")), txt(r.get("Zona"))
+            if not zn:
+                continue
+            z = zones.setdefault((c, zn), {
+                "cluster": c, "zone": zn, "type": txt(r.get("Tipo zona")), "bridge": txt(r.get("Bridge zona")),
+                "nodes": txt(r.get("Nodos zona")), "mtu": txt(r.get("MTU")), "ipam": txt(r.get("IPAM")),
+                "controller": txt(r.get("Controlador")), "peers": txt(r.get("Peers VXLAN")),
+                "exitnodes": txt(r.get("Exit nodes")), "vrf_vxlan": txt(r.get("VRF VXLAN")),
+                "qinq_tag": txt(r.get("Servicio VLAN (QinQ)")), "fabric": txt(r.get("Fabric")), "dns": txt(r.get("DNS")),
+                "reversedns": txt(r.get("DNS inverso")), "dnszone": txt(r.get("Zona DNS")), "dhcp": txt(r.get("DHCP")),
+                "pending": False, "vnets": []})
+            z["pending"] |= pend(r.get("Pendiente de aplicar"))
+            vname = txt(r.get("VNet"))
+            if not vname or vname.startswith("("):
+                continue
+            v = vnets.get((c, vname))
+            if v is None:
+                v = vnets[(c, vname)] = {
+                    "cluster": c, "zone": zn, "zone_type": z["type"], "controller": z["controller"], "vnet": vname,
+                    "alias": txt(r.get("Alias")), "tag": txt(r.get("Tag / VNI")), "vlanaware": yes(r.get("VLAN aware")),
+                    "isolate": yes(r.get("Aislar puertos")), "subnets": [], "nics": nics.get((r.get("Clúster"), vname), 0),
+                    "pending": False}
+                z["vnets"].append(v)
+            v["pending"] |= pend(r.get("Pendiente de aplicar"))
+            if txt(r.get("Subred")):
+                v["subnets"].append({"cidr": txt(r.get("Subred")), "gateway": txt(r.get("Gateway")), "snat": yes(r.get("SNAT")),
+                                     "dhcp": txt(r.get("Rango DHCP")), "dns_server": txt(r.get("Servidor DNS (DHCP)"))})
+        objects = [{"cluster": txt(r.get("Clúster")), "object": txt(r.get("Objeto")), "name": txt(r.get("Nombre")),
+                    "type": txt(r.get("Tipo")), "node": txt(r.get("Nodo")), "asn": txt(r.get("ASN")), "peers": txt(r.get("Peers")),
+                    "url": txt(r.get("URL / servidor")), "details": txt(r.get("Detalles")),
+                    "pending": pend(r.get("Pendiente de aplicar"))} for r in self.sheets.get("vSDNObj", []) if r.get("Objeto")]
+        self._sdn = {"zones": list(zones.values()), "vnets": list(vnets.values()), "objects": objects}
+        return self._sdn
+
+    def has_sdn(self) -> bool:
+        s = self.sdn()
+        return bool(s["zones"] or s["objects"])
+
+    def sdn_summary(self) -> str:
+        """Resumen en una frase: «3 zonas (vlan: 2, evpn: 1), 5 VNets, 4 subredes, 1 controlador»."""
+        s = self.sdn()
+        if not self.has_sdn():
+            return "sin SDN configurado"
+        types = Counter(z["type"] or "?" for z in s["zones"])
+        nsub = sum(len(v["subnets"]) for v in s["vnets"])
+        parts = [f"{len(s['zones'])} zona{'s' if len(s['zones']) != 1 else ''} ("
+                 + ", ".join(f"{k}: {n}" for k, n in sorted(types.items())) + ")",
+                 f"{len(s['vnets'])} VNet{'s' if len(s['vnets']) != 1 else ''}", f"{nsub} subred{'es' if nsub != 1 else ''}"]
+        objs = Counter(o["object"] for o in s["objects"] if not (o["object"] == "IPAM" and o["type"] == "pve"))
+        names = {"Controlador": ("controlador", "controladores"), "IPAM": ("IPAM externo", "IPAM externos"),
+                 "DNS": ("servidor DNS", "servidores DNS"), "Fabric": ("fabric", "fabrics"),
+                 "Nodo de fabric": ("nodo de fabric", "nodos de fabric")}
+        for k, n in objs.items():
+            one, many = names.get(k, (k.lower(), k.lower()))
+            parts.append(f"{n} {one if n == 1 else many}")
+        return ", ".join(parts)
+
+    def sdn_tables(self) -> dict:
+        """Filas (dicts) de las tablas de SDN para Excel y Word: zonas, VNets/subredes y objetos."""
+        s = self.sdn()
+        multi = len({z["cluster"] for z in s["zones"]} | {o["cluster"] for o in s["objects"]}) > 1
+        cl = lambda r: {"Clúster": r["cluster"]} if multi else {}  # noqa: E731
+        zones = [{**cl(z), "Zona": z["zone"], "Tipo": z["type"], "Red / underlay": sdn_zone_detail(z),
+                  "Nodos": z["nodes"] or "todos", "MTU": z["mtu"] or "auto",
+                  "IPAM / DNS": " · ".join(x for x in (z["ipam"] and f"IPAM {z['ipam']}", z["dns"] and f"DNS {z['dns']}",
+                                                       z["dnszone"] and f"zona {z['dnszone']}", z["dhcp"] and f"DHCP {z['dhcp']}") if x),
+                  "VNets": len(z["vnets"]), "Pendiente de aplicar": "Sí" if z["pending"] else ""} for z in s["zones"]]
+        vnets = []
+        for v in s["vnets"]:
+            base = {**cl(v), "Zona": v["zone"], "Tipo zona": v["zone_type"], "VNet": v["vnet"], "Alias": v["alias"],
+                    "Tag / VNI": v["tag"], "NICs de VMs/CTs": v["nics"]}
+            opts = ", ".join(x for x in ("VLAN aware" if v["vlanaware"] else "", "puertos aislados" if v["isolate"] else "") if x)
+            for sn in v["subnets"] or [None]:
+                vnets.append({**base, "Subred": sn["cidr"] if sn else "", "Gateway": sn["gateway"] if sn else "",
+                              "SNAT": ("Sí" if sn["snat"] else "No") if sn else "", "Rango DHCP": sn["dhcp"] if sn else "",
+                              "Opciones": opts, "Pendiente de aplicar": "Sí" if v["pending"] else ""})
+        objects = [{**cl(o), "Objeto": o["object"], "Nombre": o["name"], "Tipo": o["type"], "Nodo": o["node"], "ASN": o["asn"],
+                    "Peers / IPs": o["peers"], "URL / servidor": o["url"], "Detalles": o["details"],
+                    "Pendiente de aplicar": "Sí" if o["pending"] else ""} for o in s["objects"]]
+        return {"zones": zones, "vnets": vnets, "objects": objects}
 
     def host_networks(self) -> list[dict]:
         rows = []
@@ -320,3 +413,22 @@ class Analysis:
 
 def _vkey(v):
     return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]", v))
+
+
+def sdn_zone_detail(z) -> str:
+    """Qué hay debajo de una zona SDN: bridge, peers VXLAN o controlador EVPN."""
+    t = z.get("type")
+    if t in ("vlan", "qinq"):
+        out = f"bridge {z.get('bridge') or '?'}" + (f" · VLAN de servicio {z['qinq_tag']}" if z.get("qinq_tag") else "")
+    elif t == "vxlan":
+        out = f"peers {z.get('peers') or '?'}"
+    elif t == "evpn":
+        out = f"controlador {z.get('controller') or '?'}" + (f" · VRF VNI {z['vrf_vxlan']}" if z.get("vrf_vxlan") else "") \
+            + (f" · exit nodes {z['exitnodes']}" if z.get("exitnodes") else " · sin exit nodes")
+    elif t == "simple":
+        out = "local en cada nodo (sin red física)"
+    else:
+        out = ""
+    if z.get("fabric"):
+        out += f" · fabric {z['fabric']}"
+    return out

@@ -56,6 +56,10 @@ HEALTH_RULES = [
     (r"Desgaste del SSD", "Discos físicos", "SSD con desgaste alto (≥ 80 %)", "Planificar la sustitución de los SSD."),
     (r"Pool en estado", "ZFS", "Pools ZFS degradados", "Sustituir el disco afectado y revisar «zpool status»."),
     (r"Pool ocupado", "ZFS", "Pools ZFS por encima del 80 %", "Liberar espacio o ampliar el pool."),
+    (r"Cambios de SDN pendientes", "Red", "Cambios de SDN pendientes de aplicar",
+     "Revisar los cambios y aplicarlos (Datacenter → SDN → Aplicar) o descartarlos: la red activa no es la configurada."),
+    (r"no aparecen como bridge ni como VNet", "Red", "VMs en redes que el inventario no puede ver (¿SDN sin permiso?)",
+     "Dar el permiso SDN.Audit al usuario o token del inventario y repetir la recogida."),
     (r"Bond con una sola", "Red", "Bonds sin redundancia", "Añadir una segunda interfaz al bond."),
     (r"corosync", "Clúster", "Corosync con un solo enlace", "Configurar un segundo enlace de corosync en una red independiente."),
     (r"Firewall de datacenter", "Seguridad", "Firewall de datacenter deshabilitado",
@@ -308,6 +312,26 @@ class Assessment:
         if local_bk:
             add(WARN, "Backup", "Trabajos de backup a almacenamiento local de los nodos", local_bk,
                 "Guardar las copias fuera de los nodos (Proxmox Backup Server o almacenamiento externo).")
+        sdn = an.sdn()
+        unused = [f"{v['vnet']} ({v['zone']})" for v in sdn["vnets"] if not v["nics"]]
+        if unused:
+            add(INFO, "Red", "VNets de SDN sin ninguna VM/CT conectada", unused,
+                "Eliminar las VNets que ya no se usen o documentar para qué están reservadas.")
+        evpn = [f"{z['zone']} ({z['exitnodes'] or 'ninguno'})" for z in sdn["zones"]
+                if z["type"] == "evpn" and len([x for x in z["exitnodes"].replace(";", ",").split(",") if x.strip()]) < 2]
+        if evpn:
+            add(WARN, "Red", "Zonas SDN EVPN con menos de dos exit nodes", evpn,
+                "Configurar al menos dos exit nodes para que la salida de las VNets EVPN no dependa de un único nodo.")
+        snat = [f"{v['vnet']} ({x['cidr']})" for v in sdn["vnets"] if v["zone_type"] == "simple" for x in v["subnets"] if x["snat"]]
+        if snat:
+            add(INFO, "Red", "Subredes SDN con SNAT en zonas simples", snat,
+                "La VM sale a la red con la IP del nodo donde se ejecuta: cambia al migrarla de nodo. Tenerlo en cuenta en firewalls.")
+        for c in an.clusters:
+            nodes = sum(1 for h in an.hosts if h.cluster == c)
+            vlans = {vl for g in an.guests if g.cluster == c for _b, vl in g.nics if vl}
+            if nodes >= 3 and len(vlans) >= 3 and not any(z["cluster"] == c for z in sdn["zones"]):
+                add(INFO, "Red", "Redes de VMs definidas nodo a nodo (sin SDN)", [f"{c}: {len(vlans)} VLANs"],
+                    "Valorar SDN (zona VLAN, una VNet por VLAN) para definir y controlar las redes una sola vez para todo el clúster.")
         ha_c = {g.cluster for g in an.guests if g.ha}
         no_ha = [c for c in an.clusters if c not in ha_c and sum(1 for h in an.hosts if h.cluster == c) >= 3]
         if no_ha:

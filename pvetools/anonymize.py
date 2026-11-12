@@ -45,6 +45,7 @@ KINDS = {
     "token": ("API token", "token", 2),
     "zone": ("Zona SDN", "zona", 2),
     "vnet": ("VNet SDN", "vnet-", 2),
+    "sdn": ("Objeto SDN (controlador, IPAM, DNS, fabric)", "sdn-", 2),
     "fwobj": ("Objeto de firewall", "fwobj-", 2),
     "hagroup": ("Grupo / regla HA", "ha-", 2),
     "job": ("Job", "job-", 2),
@@ -65,6 +66,7 @@ KEEP = {
     "realm": {"pam", "pve"},
     "path": {"pve", "data", "/var/lib/vz", "rpool/data"},
     "snapshot": {"current"},
+    "sdn": {"pve"},  # IPAM integrado de Proxmox
 }
 STD_IFACE = re.compile(r"^(vmbr|bond|eth|eno|ens|enp|enx|em|p\d|ib|vlan|ovs|tap|veth|lo$)[\w.:-]*$")
 CLUSTER_SA = " (standalone)"
@@ -312,7 +314,7 @@ class Anonymizer:
             return value
         if self._text_re is None:
             names = {}  # si un mismo texto es de varios tipos, gana el primero de esta lista
-            for kind in ("node", "cluster", "vm", "storage", "fwobj", "hagroup", "zone", "vnet", "pool", "snapshot",
+            for kind in ("node", "cluster", "vm", "storage", "fwobj", "hagroup", "zone", "vnet", "sdn", "pool", "snapshot",
                          "iso", "server", "domain", "mapping", "zfs", "cephpool", "path", "job", "tag"):
                 for orig, al in self.maps[kind].items():
                     if len(orig) >= 2 and orig != al:
@@ -581,6 +583,16 @@ def _ds_path(a, v, row):
     return a.alias("path", v)
 
 
+def _url(a, v):
+    """URL de IPAM/DNS externos: se seudonimiza el servidor y se quita la ruta."""
+    m = re.match(r"^(\w+://)?(\[[^\]]+\]|[^/:]+)(:\d+)?(/.*)?$", str(v).strip())
+    if not m:
+        return a.text(v)
+    scheme, host, port, path = m.group(1) or "", m.group(2), m.group(3) or "", m.group(4) or ""
+    host = a.ip_text(host) if a._is_ip(host.strip("[]")) else a.server(host)
+    return f"{scheme}{host}{port}" + ("/…" if path.strip("/") else path)
+
+
 def _zfs_obj(a, v):
     return a.alias("zfs", v)
 
@@ -610,6 +622,15 @@ RULES = {
     "VNet": lambda a, v: a.bridge(v),
     "Zona": lambda a, v: a.alias("zone", v),
     "Alias": _blank,
+    "IPAM": lambda a, v: a.alias("sdn", v),
+    "Controlador": lambda a, v: a.alias("sdn", v),
+    "Fabric": lambda a, v: a.alias("sdn", v),
+    "DNS inverso": lambda a, v: a.alias("sdn", v),
+    "Zona DNS": lambda a, v: a.alias("domain", str(v).strip(".")),
+    "Peers VXLAN": lambda a, v: a.server(v),
+    "Exit nodes": lambda a, v: a.nodes(v),
+    "Servidor DNS (DHCP)": lambda a, v: a.server(v),
+    "URL / servidor": _url,
     "Snapshot": lambda a, v: a.alias("snapshot", v),
     "Padre": lambda a, v: a.alias("snapshot", v),
     "Serie": lambda a, v: a.alias("serial", v),
@@ -626,6 +647,9 @@ RULES = {
 
 SHEET_RULES = {
     ("vFirewallObj", "Nombre"): lambda a, v: a.alias("fwobj", v),
+    ("vSDNObj", "Nombre"): lambda a, v: a.alias("sdn", v),
+    ("vSDN", "DNS"): lambda a, v: a.alias("sdn", v),
+    ("vSDNObj", "Peers"): lambda a, v: a.server(v),
     ("vFirewall", "Destino"): None,
     ("vFirewall", "Ámbito"): _fw_scope,  # se trata como texto (IPs, alias, ipsets)
     ("vUsers", "Nombre"): _blank,
@@ -651,4 +675,5 @@ SHEET_RULES = {
 TEXT_COLS = {
     "Objeto", "Mensaje", "Ámbito", "Origen", ("vFirewall", "Destino"), ("vFirewallObj", "Valor"),
     ("vSource", "Estado"), "Recursos afectados", "Direcciones", "IP config", ("vPassthrough", "Config"),
+    ("vSDNObj", "Detalles"),
 }

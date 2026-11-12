@@ -8,7 +8,7 @@ from collections import defaultdict
 
 from .api import q
 
-EXTRA_SHEETS = ["vBond", "vBridge", "vHostVLAN", "vSDN", "vCorosync", "vFirewall", "vFirewallObj",
+EXTRA_SHEETS = ["vBond", "vBridge", "vHostVLAN", "vSDN", "vSDNObj", "vCorosync", "vFirewall", "vFirewallObj",
                 "vUsers", "vACL", "vCephOSD", "vCephPool", "vPhysicalDisk", "vZFS", "vPassthrough",
                 "vRepo", "vCert", "vBackupStatus", "vTasks"]
 
@@ -81,31 +81,121 @@ def network(inv, label, node, ifaces):
             })
 
 
+SDN_STATE = {"new": "Sí (nuevo)", "changed": "Sí (modificado)", "deleted": "Sí (borrado)"}
+
+
+def _join(v):
+    if isinstance(v, (list, tuple)):
+        return ", ".join(str(x) for x in v) or None
+    return v if v not in ("", None) else None
+
+
+def _sdn_states(api, path, key):
+    """Estado de los cambios sin aplicar ({id: 'new'|'changed'|'deleted'}), con ?pending=1."""
+    return {o.get(key): o.get("state") for o in api.try_get(path, [], pending=1) or []
+            if isinstance(o, dict) and o.get("state")}
+
+
+def _pending(state):
+    return SDN_STATE.get(state, "Sí") if state else "No"
+
+
 def sdn(inv, api, label):
-    zones = {z.get("zone"): z for z in api.try_get("cluster/sdn/zones", []) or []}
-    vnets = api.try_get("cluster/sdn/vnets", []) or []
+    """Zonas, VNets y subredes (vSDN) y controladores, IPAM, DNS y fabrics (vSDNObj) del SDN del clúster."""
+    zones = {z.get("zone"): z for z in api.try_get("cluster/sdn/zones", []) or [] if isinstance(z, dict)}
+    vnets = [v for v in api.try_get("cluster/sdn/vnets", []) or [] if isinstance(v, dict)]
+    zstate = _sdn_states(api, "cluster/sdn/zones", "zone")
+    vstate = _sdn_states(api, "cluster/sdn/vnets", "vnet")
+    # NICs de VMs/CTs conectadas a cada VNet (la VNet aparece como bridge de la NIC)
+    nics = defaultdict(set)
+    for n in inv.sheets["vNetwork"]:
+        if n.get("Clúster") == label and n.get("Bridge"):
+            nics[n["Bridge"]].add((n.get("VMID"), n.get("Interfaz")))
+
+    def zone_cols(z):
+        return {"Controlador": z.get("controller"), "Peers VXLAN": _join(z.get("peers")),
+                "Exit nodes": _join(z.get("exitnodes")), "VRF VXLAN": z.get("vrf-vxlan"),
+                "Servicio VLAN (QinQ)": z.get("tag") if z.get("type") == "qinq" else None,
+                "Fabric": z.get("fabric"), "DNS": z.get("dns"), "DNS inverso": z.get("reversedns"),
+                "Zona DNS": z.get("dnszone"), "DHCP": z.get("dhcp")}
+
     used = set()
     for v in sorted(vnets, key=lambda x: x.get("vnet", "")):
+        name = v.get("vnet")
         z = zones.get(v.get("zone"), {})
         used.add(v.get("zone"))
-        subnets = api.try_get(f"cluster/sdn/vnets/{q(v.get('vnet'))}/subnets", []) or [{}]
+        spath = f"cluster/sdn/vnets/{q(name)}/subnets"
+        subnets = [s for s in api.try_get(spath, []) or [] if isinstance(s, dict)] or [{}]
+        sstate = _sdn_states(api, spath, "subnet") if subnets != [{}] else {}
         for s in subnets:
             dhcp = s.get("dhcp-range")
             if isinstance(dhcp, list):
                 dhcp = ", ".join(f"{d.get('start-address')}-{d.get('end-address')}" if isinstance(d, dict) else str(d) for d in dhcp)
+            state = vstate.get(name) or zstate.get(v.get("zone")) or sstate.get(s.get("subnet"))
             inv.sheets["vSDN"].append({
-                "Clúster": label, "Zona": v.get("zone"), "Tipo zona": z.get("type"), "Bridge zona": z.get("bridge"),
-                "Nodos zona": z.get("nodes"), "MTU": z.get("mtu"), "IPAM": z.get("ipam"),
-                "VNet": v.get("vnet"), "Alias": v.get("alias"), "Tag / VNI": v.get("tag"),
+                "Clúster": label, "Zona": v.get("zone"), "Tipo zona": z.get("type"),
+                "Bridge zona": z.get("bridge") if z.get("type") in ("vlan", "qinq") else None,
+                "Nodos zona": _join(z.get("nodes")), "MTU": z.get("mtu"), "IPAM": z.get("ipam"),
+                "VNet": name, "Alias": v.get("alias"), "Tag / VNI": v.get("tag"),
                 "VLAN aware": _flag(v.get("vlanaware")), "Subred": s.get("cidr") or s.get("subnet"),
                 "Gateway": s.get("gateway"), "SNAT": _flag(s.get("snat")) if s else None, "Rango DHCP": dhcp,
-                "Pendiente de aplicar": "Sí" if (v.get("state") or z.get("state")) else "No",
+                "Pendiente de aplicar": _pending(state),
+                **zone_cols(z), "Aislar puertos": _flag(v.get("isolate-ports")),
+                "Servidor DNS (DHCP)": s.get("dhcp-dns-server"), "NICs de VMs/CTs": len(nics.get(name, ())),
             })
     for name, z in sorted(zones.items()):
         if name not in used:
             inv.sheets["vSDN"].append({"Clúster": label, "Zona": name, "Tipo zona": z.get("type"),
-                                       "Bridge zona": z.get("bridge"), "Nodos zona": z.get("nodes"),
-                                       "MTU": z.get("mtu"), "IPAM": z.get("ipam"), "VNet": "(sin VNets)"})
+                                       "Bridge zona": z.get("bridge") if z.get("type") in ("vlan", "qinq") else None,
+                                       "Nodos zona": _join(z.get("nodes")), "MTU": z.get("mtu"), "IPAM": z.get("ipam"),
+                                       "VNet": "(sin VNets)", "Pendiente de aplicar": _pending(zstate.get(name)), **zone_cols(z)})
+    _sdn_objects(inv, api, label)
+
+
+def _sdn_objects(inv, api, label):
+    rows = inv.sheets["vSDNObj"]
+
+    def add(obj, name, typ, state=None, **kw):
+        rows.append({"Clúster": label, "Objeto": obj, "Nombre": name, "Tipo": typ,
+                     "Pendiente de aplicar": _pending(state), **{k: _join(v) for k, v in kw.items()}})
+
+    cstate = _sdn_states(api, "cluster/sdn/controllers", "controller")
+    for c in sorted(api.try_get("cluster/sdn/controllers", []) or [], key=lambda x: str(x.get("controller"))):
+        if not isinstance(c, dict):
+            continue
+        det = []
+        for k in ("ebgp", "ebgp-multihop", "loopback", "bgp-multipath-as-path-relax", "isis-domain", "isis-net",
+                  "isis-ifaces", "fabric"):
+            if c.get(k) not in (None, ""):
+                det.append(f"{k}={_join(c[k])}")
+        add("Controlador", c.get("controller"), c.get("type"), cstate.get(c.get("controller")), Nodo=c.get("node"),
+            ASN=c.get("asn"), Peers=c.get("peers"), Detalles="; ".join(det) or None)
+    istate = _sdn_states(api, "cluster/sdn/ipams", "ipam")
+    for i in sorted(api.try_get("cluster/sdn/ipams", []) or [], key=lambda x: str(x.get("ipam"))):
+        if isinstance(i, dict):  # el token nunca se exporta
+            add("IPAM", i.get("ipam"), i.get("type"), istate.get(i.get("ipam")), **{"URL / servidor": i.get("url")},
+                Detalles=f"section={i['section']}" if i.get("section") else None)
+    dstate = _sdn_states(api, "cluster/sdn/dns", "dns")
+    for d in sorted(api.try_get("cluster/sdn/dns", []) or [], key=lambda x: str(x.get("dns"))):
+        if isinstance(d, dict):  # la clave nunca se exporta
+            det = [f"{k}={d[k]}" for k in ("ttl", "reversemaskv6", "reversev6mask") if d.get(k) not in (None, "")]
+            add("DNS", d.get("dns"), d.get("type"), dstate.get(d.get("dns")), **{"URL / servidor": d.get("url")},
+                Detalles="; ".join(det) or None)
+    # Fabrics (Proxmox VE 9): red underlay OpenFabric/OSPF para las zonas VXLAN/EVPN
+    for f in sorted(api.try_get("cluster/sdn/fabrics/fabric", []) or [], key=lambda x: str(x.get("id"))):
+        if not isinstance(f, dict):
+            continue
+        det = [f"{k}={f[k]}" for k in ("ip_prefix", "ip6_prefix", "area", "hello_interval", "csnp_interval")
+               if f.get(k) not in (None, "")]
+        add("Fabric", f.get("id"), f.get("protocol"), f.get("state"), Detalles="; ".join(det) or None)
+    for n in sorted(api.try_get("cluster/sdn/fabrics/node", []) or [], key=lambda x: (str(x.get("fabric_id")), str(x.get("node_id")))):
+        if not isinstance(n, dict):
+            continue
+        ifs = n.get("interfaces") or []
+        ifs = [i.get("name") if isinstance(i, dict) else str(i).split(",")[0].replace("name=", "") for i in ifs]
+        add("Nodo de fabric", n.get("fabric_id"), n.get("protocol"), n.get("state"), Nodo=n.get("node_id"),
+            Peers=", ".join(x for x in (n.get("ip"), n.get("ip6")) if x) or None,
+            Detalles=("interfaces=" + ", ".join(i for i in ifs if i)) if ifs else None)
 
 
 def corosync(inv, api, label, clustered):
@@ -338,6 +428,28 @@ def health(inv, add):
             add("CRÍTICO", z["Clúster"], obj, f"Pool en estado {z['Estado']}")
         if (z["Uso (%)"] or 0) >= 80:
             add("AVISO", z["Clúster"], obj, f"Pool ocupado al {z['Uso (%)']}% (ZFS se degrada por encima del 80%)")
+    pend = defaultdict(list)
+    for r in inv.sheets["vSDN"]:
+        if str(r.get("Pendiente de aplicar") or "No").startswith("Sí"):
+            pend[r["Clúster"]].append(f"VNet {r['VNet']}" if r.get("VNet") and not str(r["VNet"]).startswith("(") else f"zona {r['Zona']}")
+    for r in inv.sheets["vSDNObj"]:
+        if str(r.get("Pendiente de aplicar") or "No").startswith("Sí"):
+            pend[r["Clúster"]].append(f"{r['Objeto']} {r['Nombre']}")
+    for label, objs in pend.items():
+        objs = sorted(set(objs))
+        add("AVISO", label, "SDN", f"Cambios de SDN pendientes de aplicar ({', '.join(objs[:8])}"
+            + (f" y {len(objs) - 8} más" if len(objs) > 8 else "") + "): la configuración activa no coincide con la guardada")
+    # NICs de VMs en redes que no son bridges de los nodos ni VNets del SDN: el usuario no puede leer el SDN
+    known = defaultdict(set)
+    for r in inv.sheets["vBridge"] + inv.sheets["vSDN"]:
+        known[r["Clúster"]].add(r.get("Bridge") or r.get("VNet"))
+    unknown = defaultdict(set)
+    for n in inv.sheets["vNetwork"]:
+        if known.get(n["Clúster"]) and n.get("Bridge") and n["Bridge"] not in known[n["Clúster"]]:
+            unknown[n["Clúster"]].add(n["Bridge"])
+    for label, brs in unknown.items():
+        add("INFO", label, "SDN", f"Hay VMs/CTs conectadas a redes que no aparecen como bridge ni como VNet SDN "
+            f"({', '.join(sorted(brs)[:8])}): si son VNets, el usuario del inventario necesita el permiso SDN.Audit")
     for b in inv.sheets["vBond"]:
         if b["Nº esclavos"] == 1:
             add("INFO", b["Clúster"], f"Bond {b['Bond']} ({b['Nodo']})", "Bond con una sola interfaz (sin redundancia)")

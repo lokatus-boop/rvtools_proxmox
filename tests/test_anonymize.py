@@ -79,6 +79,11 @@ def test_consistent_and_structure_preserved():
     assert all(ipaddress.ip_interface(r["CIDR"]).ip.exploded in host_ips for r in out["vBridge"])
     # las VNets SDN se anonimizan igual en vSDN y en vNetwork
     assert out["vSDN"][0]["VNet"] != "vnet100" and out["vSDN"][0]["Alias"] is None
+    # SDN: controladores, IPAM, DNS, zonas DNS y URLs se seudonimizan; el IPAM integrado «pve» se conserva
+    sdn_text = str(out["vSDN"]) + str(out["vSDNObj"]) + str(out["vHealth"])
+    for real in ("evpnctl", "netbox1", "pdns", "tenant1", "zvlan", "cliente.local", "ipam01", "10.0.0.53", "/api"):
+        assert real not in sdn_text, real
+    assert {r["Nombre"] for r in out["vSDNObj"] if r["Objeto"] == "IPAM"} >= {"pve"}
 
 
 def test_mapping_roundtrip_and_reverse():

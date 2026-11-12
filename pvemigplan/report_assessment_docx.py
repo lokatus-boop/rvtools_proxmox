@@ -160,9 +160,23 @@ class AssessmentDoc(Doc):
         sub = an.subnets()
         if sub:
             self.p("Subredes de gestión/infraestructura de los nodos: " + ", ".join(sub) + ".")
-        self.p(f"Jumbo frames en interfaces de los nodos: {'sí' if an.mtu_jumbo() else 'no'} · SDN: "
-               f"{'sí' if sh.get('vSDN') else 'no'} · enlaces de corosync: "
+        self.p(f"Jumbo frames en interfaces de los nodos: {'sí' if an.mtu_jumbo() else 'no'} · enlaces de corosync: "
                f"{max((int(num(r.get('Enlaces'), 0) or 0) for r in sh.get('vCorosync', [])), default=0) or '—'}.")
+        self.h("SDN (Software Defined Network)", 3)
+        if an.has_sdn():
+            sdn = an.sdn()
+            on_sdn = sum(v["nics"] for v in sdn["vnets"])
+            total = len(sh.get("vNetwork", []))
+            self.p(f"El entorno tiene SDN configurado: {an.sdn_summary()}. "
+                   f"{on_sdn} de {total} interfaces de red de VMs/CTs están conectadas a VNets de SDN"
+                   + (" y el resto directamente a bridges de los nodos." if on_sdn < total else "."))
+            if any(z["pending"] for z in sdn["zones"]) or any(o["pending"] for o in sdn["objects"]):
+                self.p("Hay cambios de SDN guardados que no se han aplicado: la red activa no coincide con la configurada.",
+                       bold=True)
+            self.sdn_tables(an, level=4)
+        else:
+            self.p("No hay SDN configurado (o el usuario del inventario no tenía el permiso SDN.Audit): las VMs se conectan "
+                   "directamente a los bridges de cada nodo y las VLANs se definen en cada VM.")
 
         # 7. Backup, snapshots y HA
         self.h("7. Copias de seguridad, snapshots y alta disponibilidad")
