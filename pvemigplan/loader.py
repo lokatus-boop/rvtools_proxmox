@@ -57,8 +57,16 @@ def _clean(v):
 
 
 def read_xlsx(path: str) -> dict:
+    import zipfile
     from openpyxl import load_workbook
-    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        wb = load_workbook(path, read_only=True, data_only=True)
+    except (zipfile.BadZipFile, OSError, KeyError) as e:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+        why = ("está vacío (solo contiene ceros): no llegó a guardarse bien o se dañó al copiarlo/sincronizarlo"
+               if not head.strip(b"\0") else "no es un Excel válido o está dañado")
+        raise InventoryError(f"{os.path.basename(path)} {why}. Vuelve a exportarlo desde PVE Inventory. ({e})") from e
     sheets = {}
     for ws in wb.worksheets:
         if ws.title not in SCHEMA:
