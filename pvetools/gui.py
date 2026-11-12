@@ -7,10 +7,11 @@ import os
 import queue
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, DISCLAIMER_TITLE, DISCLAIMER_VERSION, SHORT_NOTICE, asset_path
+from .api import METHOD_NAMES
 from .collector import SHEET_GROUPS, SHEETS, Inventory
 from .anonymize import Anonymizer, default_map_path, reverse_file
 from .export import columns, to_csv, to_xlsx
@@ -359,6 +360,8 @@ class App(tk.Tk):
             return
         self.btn_run.configure(state="disabled")
         agent = self.v_agent.get()
+        # Cuentas con 2FA: el código se pide al conectar (no se guarda en ningún sitio)
+        conns = [c if c.get("token_id") else {**c, "tfa_callback": self._ask_tfa_from_worker} for c in conns]
 
         def worker():
             try:
@@ -370,12 +373,37 @@ class App(tk.Tk):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def _ask_tfa_from_worker(self, host, user, methods, error):
+        """Llamado desde el hilo del inventario: pide el código en la ventana principal y espera la respuesta."""
+        done, box = threading.Event(), {}
+        self.msgs.put(("tfa", (host, user, methods, error, done, box)))
+        done.wait()
+        return box.get("code")
+
+    def _ask_tfa(self, host, user, methods, error):
+        self.status.set(f"{host}: la cuenta {user} pide segundo factor (2FA)")
+        what = "el código de 6 dígitos de tu app de autenticación (TOTP)" if "totp" in methods else "el código"
+        extra = [METHOD_NAMES[m] for m in ("recovery", "yubico") if m in methods]
+        if extra:
+            what += ", o un " + " o un ".join(extra)
+        prompt = (f"La cuenta {user} en {host} tiene segundo factor (2FA).\n\nEscribe {what}:"
+                  + (f"\n\n⚠ {error}" if error else "")
+                  + "\n\nConsejo: con un API token de solo lectura no se pide 2FA (ver README).")
+        code = simpledialog.askstring(f"{APP_NAME} — segundo factor", prompt, parent=self)
+        return code.strip() if code and code.strip() else None
+
     def _poll(self):
         try:
             while True:
                 kind, payload = self.msgs.get_nowait()
                 if kind == "status":
                     self.status.set(payload)
+                elif kind == "tfa":
+                    *args, done, box = payload
+                    try:
+                        box["code"] = self._ask_tfa(*args)
+                    finally:
+                        done.set()
                 elif kind == "done":
                     self.inv, self.sheets = payload
                     for n in SHEETS:

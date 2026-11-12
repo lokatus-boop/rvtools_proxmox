@@ -3,6 +3,7 @@
 Ejemplos:
   pveinventory.exe --host pve1.local --user auditor@pve --token-id inventario --token-secret XXXX -o inventario.xlsx
   pveinventory.exe --host pve1 --host pve2:8006 --user root@pam --password-env PVE_PASSWORD --csv .\\csv
+  pveinventory.exe --host pve1 --user admin@pam --totp 123456      (cuenta con 2FA; sin --totp lo pregunta)
   pveinventory.exe --host pve1 --user root@pam --anonimizar -o inventario_anonimo.xlsx
   pveinventory.exe --revertir plan.xlsx --correspondencia inventario_anonimo_correspondencia_CONFIDENCIAL.xlsx
 """
@@ -21,6 +22,19 @@ from .anonymize import Anonymizer, default_map_path, reverse_file
 from .export import to_csv, to_xlsx
 
 
+def _ask_tfa(host, user, methods, error):
+    """Pregunta el código 2FA en la consola (el código no se muestra ni se guarda)."""
+    if error:
+        print(f"  {error}", file=sys.stderr)
+    what = "código TOTP" if "totp" in methods else "código"
+    if "recovery" in methods:
+        what += " o de recuperación"
+    try:
+        return getpass.getpass(f"{user} en {host} tiene 2FA. {what} (vacío = cancelar): ").strip() or None
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="pveinventory", description=f"{APP_NAME} {__version__}: inventario de Proxmox VE 8/9 a Excel/CSV",
                                 epilog=SHORT_NOTICE + ". Solo lectura: no modifica nada en Proxmox.")
@@ -32,6 +46,9 @@ def build_parser():
     auth.add_argument("--password-env", metavar="VAR", help="Variable de entorno con la contraseña")
     auth.add_argument("--token-id", help="ID del API token (la parte tras '!')")
     p.add_argument("--token-secret", help="Secreto del API token (o variable PVE_TOKEN_SECRET)")
+    p.add_argument("--totp", metavar="CÓDIGO",
+                   help="Cuentas con 2FA: código TOTP de 6 dígitos o código de recuperación. Si la cuenta lo pide y no "
+                        "se indica, se pregunta (en consola interactiva). Con API token no hace falta")
     p.add_argument("--verify-ssl", action="store_true", help="Verificar certificado (por defecto se aceptan autofirmados)")
     p.add_argument("--no-agent", action="store_true", help="No consultar el QEMU guest agent (más rápido, sin IPs de VMs)")
     p.add_argument("-o", "--xlsx", help="Fichero Excel de salida (por defecto pve_inventory_FECHA.xlsx)")
@@ -66,6 +83,8 @@ def main(argv=None):
         return 0
     if not a.host or not a.user:
         parser.error("indica --host y --user (o --revertir)")
+    if a.totp and a.token_id:
+        parser.error("--totp solo se usa con contraseña: el API token no pide 2FA")
     if (a.conservar_ips or a.correspondencia or a.sin_correspondencia) and not a.anonimizar:
         parser.error("--conservar-ips, --correspondencia y --sin-correspondencia requieren --anonimizar")
     base = {"user": a.user, "verify_ssl": a.verify_ssl}
@@ -77,6 +96,10 @@ def main(argv=None):
     else:
         pw = a.password or (os.environ.get(a.password_env) if a.password_env else None)
         base["password"] = pw if pw is not None else getpass.getpass(f"Contraseña de {a.user}: ")
+        if a.totp:
+            base["otp"] = a.totp
+        if sys.stdin and sys.stdin.isatty():
+            base["tfa_callback"] = _ask_tfa
     conns = [{**base, "host": h} for h in a.host]
     log = (lambda m: None) if a.quiet else (lambda m: print(m, file=sys.stderr))
     log(f"{APP_NAME} {__version__} — {SHORT_NOTICE}")

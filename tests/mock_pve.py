@@ -9,7 +9,7 @@ import ssl
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 NOW = int(time.time())
 G = 1024 ** 3
@@ -199,6 +199,13 @@ def standalone_data():
 class Handler(BaseHTTPRequestHandler):
     data = {}
     TOKEN = "PVEAPIToken=auditor@pve!inv=secret"
+    # Cuentas con 2FA. El desafío imita el de PVE: «PVE:!tfa!<json con % y : escapados>:<hora>::<firma>»
+    TFA_USERS = {
+        "tfa@pam": {"challenge": "PVE:!tfa!" + quote('{"totp":true,"recovery":[0,1,2]}', safe='{}",[]') + ":6733B2C1::c2ln",
+                    "ok": {"totp:123456", "recovery:abcd-ef01-2345-6789"}},
+        "fido@pam": {"challenge": "PVE:!tfa!" + quote('{"webauthn":{"publicKey":{}}}', safe='{}",') + ":6733B2C1::c2ln",
+                     "ok": set()},
+    }
 
     def log_message(self, *a):
         pass
@@ -215,13 +222,24 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.endswith("/access/ticket"):
             n = int(self.headers.get("Content-Length", 0))
             form = parse_qs(self.rfile.read(n).decode())
-            if form.get("username") == ["root@pam"] and form.get("password") == ["pw"]:
+            user, pw = (form.get("username") or [""])[0], (form.get("password") or [""])[0]
+            challenge = (form.get("tfa-challenge") or [None])[0]
+            if challenge:  # 2º paso: respuesta al desafío 2FA en «password»
+                if challenge == self.TFA_USERS.get(user, {}).get("challenge") and pw in self.TFA_USERS[user]["ok"]:
+                    return self._send(200, {"ticket": f"PVE:{user}:TICKET", "CSRFPreventionToken": "csrf", "username": user})
+                return self._send(401)
+            if user == "root@pam" and pw == "pw":
                 return self._send(200, {"ticket": "PVE:root@pam:TICKET", "CSRFPreventionToken": "csrf", "username": "root@pam"})
+            if user in self.TFA_USERS and pw == "pw":  # como PVE: medio ticket con el desafío y NeedTFA
+                return self._send(200, {"ticket": self.TFA_USERS[user]["challenge"], "CSRFPreventionToken": "csrf",
+                                        "username": user, "NeedTFA": 1})
             return self._send(401)
         self._send(501)
 
     def do_GET(self):
-        auth = self.headers.get("Authorization") == self.TOKEN or "PVEAuthCookie=PVE:root@pam:TICKET" in (self.headers.get("Cookie") or "")
+        cookie = self.headers.get("Cookie") or ""
+        auth = self.headers.get("Authorization") == self.TOKEN or any(
+            f"PVEAuthCookie=PVE:{u}:TICKET" in cookie for u in ["root@pam", *self.TFA_USERS])
         if not auth:
             return self._send(401)
         path = re.sub(r"^/api2/json/", "", urlparse(self.path).path)

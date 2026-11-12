@@ -92,7 +92,18 @@ pveum acl modify / -user inventario@pve -role InventarioRO
 
 Si te basta sin IPs de las VMs, puedes usar el rol incluido `PVEAuditor`. En la herramienta: usuario `inventario@pve`, Token ID `inv` y el secreto.
 
-También funciona con usuario y contraseña (`root@pam`, etc.). Las cuentas con 2FA deben usar token.
+También funciona con usuario y contraseña (`root@pam`, etc.).
+
+### Cuentas con segundo factor (2FA)
+
+Si la cuenta tiene 2FA, la herramienta pide el código al conectar, igual que la web de Proxmox:
+
+* **Interfaz gráfica:** aparece una ventana para escribir el código de 6 dígitos de la app de autenticación (TOTP) o un código de recuperación. Si el código no vale, lo vuelve a pedir (hasta 3 veces). El código no se guarda.
+* **Línea de comandos:** `--totp 123456` (o un código de recuperación). Si no se indica y la consola es interactiva, lo pregunta. En tareas programadas usa un API token, porque el código caduca cada 30 segundos.
+* Se admiten TOTP, códigos de recuperación y Yubico OTP. Las cuentas que **solo** tienen llave FIDO/WebAuthn no pueden usarse aquí: hace falta un API token.
+* En la hoja *vSource* queda anotado, p. ej. `Contraseña + 2FA (TOTP)`.
+
+Aun así, lo más cómodo para el cliente es el **API token de solo lectura** del apartado anterior: no pide 2FA, no caduca a los 30 segundos y tiene solo los permisos necesarios.
 
 ## Uso
 
@@ -106,7 +117,7 @@ pveinventory-cli.exe --host pve1.midominio.local --host pve-sa.midominio.local ^
     -o C:\Inventario\pve.xlsx --csv C:\Inventario\csv
 ```
 
-Opciones: `--password-env VAR` (contraseña desde una variable de entorno), `PVE_TOKEN_SECRET` (secreto desde una variable de entorno), `--no-agent` (más rápido, sin IPs de VMs), `--verify-ssl`, `--anonimizar` (ver más abajo). Código de salida: 0 todo OK, 1 alguna conexión falló, 2 fallaron todas.
+Opciones: `--password-env VAR` (contraseña desde una variable de entorno), `--totp CÓDIGO` (cuentas con 2FA), `PVE_TOKEN_SECRET` (secreto desde una variable de entorno), `--no-agent` (más rápido, sin IPs de VMs), `--verify-ssl`, `--anonimizar` (ver más abajo). Código de salida: 0 todo OK, 1 alguna conexión falló, 2 fallaron todas.
 
 ## Anonimizar el inventario
 
