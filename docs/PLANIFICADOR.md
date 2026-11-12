@@ -11,6 +11,7 @@ Genera un juego de documentos para cada fase del proyecto (sin precios: la valor
 | `…_diseno_cliente.docx` | Cliente (presentado por preventa) | Situación actual, requisitos, arquitectura, **diagrama de red** con servidores, switches y enlaces por fabric, almacenamiento, PBS, plan por olas y riesgos, con gráficos. Opcionalmente los PNG para una presentación. |
 | `…_guia_implementacion.docx` | Servicios profesionales | Datos a confirmar, puertos y bonds por nodo, cableado switch↔nodo, VLANs, pasos de instalación (Proxmox VE, red, clúster, almacenamiento, PBS, HA) y checklist de pruebas y migración por olas. |
 | `…_hoja_configuracion.xlsx` | Servicios profesionales | La **hoja de configuración del proyecto** (*Proxmox VE on PRIMERGY – Customer Interview Configuration Sheet*) rellena con lo que ya se sabe: puertos de los nodos, redes, switches, almacenamiento, PBS y datos generales. Los valores propuestos van en azul cursiva para confirmar con el cliente. **Las contraseñas nunca se rellenan.** La plantilla no se incluye en el programa: se elige la propia. |
+| `analisis_infraestructura.docx` + `.xlsx` | Preventa / cliente | **Solo análisis** (sin migración): informe tipo RVTools / health check de la infraestructura actual con gráficos (capacidad y uso por nodo, sobreasignación, tolerancia a la caída de un nodo, distribución de VMs y sistemas operativos, almacenamiento, redes, backup y snapshots) y hallazgos con recomendaciones. No propone hardware, migración ni olas. |
 | `documentacion_asbuilt.docx` | Postventa | Lo que queda configurado: se genera a partir del inventario del **nuevo** entorno (PVE Inventory) y, opcionalmente, de la hoja de configuración completada (sin contraseñas, claves ni tokens). |
 
 Se ejecuta en local, no se conecta a ningún servidor y no envía nada a la nube. Al arrancar por primera vez muestra el aviso de uso.
@@ -43,6 +44,10 @@ Se ejecuta en local, no se conecta a ningún servidor y no envía nada a la nube
      se indica la plantilla de la hoja de configuración (se recuerda) y *Generar documentos* los crea en la carpeta elegida.
    * **7 · As-built (postventa):** tras la implementación, cargar el inventario del nuevo entorno y la hoja de configuración
      completada para generar la documentación de lo configurado.
+   * **8 · Solo análisis:** con el inventario cargado en la pestaña 1 (también anonimizado), *Analizar* muestra el resumen
+     y los hallazgos y *Generar informe…* crea el Word con gráficos y el Excel con los datos y el detalle de los hallazgos.
+     También desde el botón *Solo análisis (informe sin migración)…* de la pestaña 1 o *Archivo → Informe de solo análisis*.
+     No hace falta rellenar las pestañas 2-6.
 3. El escenario (todos los parámetros y el hardware) se puede guardar como JSON (*Archivo → Guardar escenario*) para
    retomarlo o para usarlo desde la línea de comandos.
 
@@ -77,10 +82,23 @@ pvemigplan-cli.exe inventario.xlsx -o C:\Planes\ACME --cliente "ACME" --graficos
 pvemigplan-cli.exe inv_clu1.xlsx inv_clu2.xlsx --almacenamiento san --pve 9.1 --sin-pbs
 pvemigplan-cli.exe inventario.xlsx -e escenario.json        :: hardware definido y parámetros guardados desde la GUI
 pvemigplan-cli.exe inventario.xlsx --hoja-config "C:\Plantillas\ProxmoxVE Project Configuration Sheet.xlsx"
+pvemigplan-cli.exe inventario.xlsx --analisis --cliente "ACME" -o C:\Informes\ACME   :: solo análisis, sin migración
 pvemigplan-cli.exe --asbuilt inventario_nuevo.xlsx --hoja-config hoja_completada.xlsx --cliente ACME --autor "PS"
 ```
 
-`--sin-implementacion` omite la guía de implementación y `--sin-word` los documentos Word.
+`--sin-implementacion` omite la guía de implementación y `--sin-word` los documentos Word. En modo `--analisis`,
+`--sin-word` / `--sin-excel` omiten el Word o el Excel del informe y `--graficos` guarda también los PNG.
+
+### Hallazgos del informe de solo análisis
+
+Se agrupan por tema (un hallazgo con la lista de objetos afectados) y se ordenan por severidad (crítico, aviso, informativo).
+Incluyen los avisos que ya detecta PVE Inventory (hoja vHealth: quórum, ocupación de almacenamientos, Ceph, ZFS, SMART,
+certificados, backups, repositorios, corosync…) y estas comprobaciones del propio análisis: versiones de Proxmox VE sin
+soporte o próximas a fin de soporte (6: jul-2022, 7: jul-2024, 8: ago-2026), uso de CPU ≥ 80 %, RAM asignada a VMs
+encendidas mayor que la física, clúster que no resiste la caída del nodo mayor (memoria > 90 % en el resto), desequilibrio
+de memoria entre nodos, clústeres de 2 nodos sin QDevice, nodos independientes, SO invitados antiguos, passthrough, CPU
+«host» con fabricantes mezclados, sin trabajos de backup o con backup a almacenamiento local, clústeres sin HA y VMs muy
+grandes respecto al nodo.
 
 Código de salida: 0 plan correcto, 1 el hardware no cubre las necesidades, 2 error.
 

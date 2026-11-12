@@ -133,6 +133,7 @@ class Doc:
                 if k % 2:
                     _shade(cells[i], "F2F6FA")
         if widths:
+            t.autofit = False
             for row in t.rows:
                 for i, w in enumerate(widths):
                     row.cells[i].width = Cm(w)

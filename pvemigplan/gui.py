@@ -180,6 +180,7 @@ class App(tk.Tk):
         m = tk.Menu(menu, tearoff=False)
         m.add_command(label="Añadir inventario Excel…", command=self._add_xlsx)
         m.add_command(label="Añadir carpeta de CSV…", command=self._add_csv)
+        m.add_command(label="Informe de solo análisis (sin migración)…", command=self._goto_analysis)
         m.add_separator()
         m.add_command(label="Abrir escenario…", command=self._open_scenario)
         m.add_command(label="Guardar escenario…", command=self._save_scenario)
@@ -217,6 +218,7 @@ class App(tk.Tk):
         self._tab_migration()
         self._tab_result()
         self._tab_asbuilt()
+        self._tab_analysis()
         self.status = tk.StringVar(value="Carga el Excel o la carpeta de CSV exportados con PVE Inventory.")
         ttk.Label(self, textvariable=self.status, anchor="w", relief="sunken").pack(fill="x", side="bottom")
 
@@ -239,6 +241,7 @@ class App(tk.Tk):
         ttk.Button(bar, text="Añadir Excel…", command=self._add_xlsx).pack(side="left")
         ttk.Button(bar, text="Añadir carpeta CSV…", command=self._add_csv).pack(side="left", padx=4)
         ttk.Button(bar, text="Vaciar", command=self._clear_files).pack(side="left")
+        ttk.Button(bar, text="Solo análisis (informe sin migración)…", command=self._goto_analysis).pack(side="right")
         self.v_stopped = tk.BooleanVar(value=True)
         self.v_templates = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="Incluir VMs apagadas", variable=self.v_stopped, command=self._refresh_inventory).pack(side="left", padx=(20, 4))
@@ -456,6 +459,101 @@ class App(tk.Tk):
                 ttk.Button(t, text="…", width=3, command=cmd).grid(row=i, column=2, sticky="w")
         ttk.Button(t, text="Generar documentación as-built…", command=self._asbuilt).grid(row=6, column=1, sticky="w", padx=4, pady=12)
         t.columnconfigure(1, weight=1)
+
+    def _tab_analysis(self):
+        t = ttk.Frame(self.nb, padding=10)
+        self.analysis_tab = t
+        self.nb.add(t, text="8 · Solo análisis")
+        ttk.Label(t, foreground="#555", wraplength=1100, justify="left", text=(
+            "Informe de la infraestructura actual, como un RVTools / health check: capacidad, uso, distribución de VMs, "
+            "almacenamiento, red, backup y hallazgos con recomendaciones, con gráficos. No propone migración, hardware ni olas. "
+            "Usa el inventario cargado en la pestaña 1 (también vale un inventario anonimizado).")).pack(anchor="w", pady=(0, 8))
+        st = self._settings()
+        f = ttk.Frame(t)
+        f.pack(fill="x")
+        self.v_an_client = tk.StringVar()
+        self.v_an_author = tk.StringVar(value=st.get("author", ""))
+        ttk.Label(f, text="Cliente:").grid(row=0, column=0, sticky="w", padx=4, pady=2)
+        ttk.Entry(f, textvariable=self.v_an_client, width=40).grid(row=0, column=1, sticky="w", padx=4)
+        ttk.Label(f, text="Autor:").grid(row=0, column=2, sticky="w", padx=(16, 4))
+        ttk.Entry(f, textvariable=self.v_an_author, width=30).grid(row=0, column=3, sticky="w", padx=4)
+        self.v_an_docx = tk.BooleanVar(value=st.get("an_docx", True))
+        self.v_an_xlsx = tk.BooleanVar(value=st.get("an_xlsx", True))
+        self.v_an_charts = tk.BooleanVar(value=st.get("an_charts", False))
+        ttk.Checkbutton(f, text="Word con gráficos", variable=self.v_an_docx).grid(row=1, column=0, columnspan=2, sticky="w", padx=4)
+        ttk.Checkbutton(f, text="Excel con datos y hallazgos", variable=self.v_an_xlsx).grid(row=1, column=2, columnspan=2, sticky="w", padx=4)
+        ttk.Checkbutton(f, text="Guardar también los gráficos (PNG)", variable=self.v_an_charts).grid(row=1, column=4, sticky="w", padx=4)
+        bar = ttk.Frame(t)
+        bar.pack(fill="x", pady=6)
+        ttk.Button(bar, text="Analizar", command=self._analyze).pack(side="left")
+        ttk.Button(bar, text="Generar informe…", command=self._export_analysis).pack(side="left", padx=8)
+        pw = ttk.PanedWindow(t, orient="vertical")
+        pw.pack(fill="both", expand=True)
+        self.an_txt = tk.Text(pw, height=11, wrap="word", font=("Consolas", 10))
+        pw.add(self.an_txt, weight=1)
+        lf = ttk.LabelFrame(pw, text="Hallazgos")
+        cols = ("Severidad", "Categoría", "Hallazgo", "Afectados", "Objetos", "Recomendación")
+        self.an_tree = ttk.Treeview(lf, columns=cols, show="headings")
+        for c in cols:
+            self.an_tree.heading(c, text=c)
+            self.an_tree.column(c, width={"Hallazgo": 300, "Objetos": 260, "Recomendación": 360, "Categoría": 120, "Afectados": 70}.get(c, 90), anchor="w")
+        for tag, color in (("CRÍTICO", "#F8CBAD"), ("AVISO", "#FFE699"), ("INFO", "#DDEBF7")):
+            self.an_tree.tag_configure(tag, background=color)
+        sb = ttk.Scrollbar(lf, orient="vertical", command=self.an_tree.yview)
+        self.an_tree.configure(yscrollcommand=sb.set)
+        self.an_tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        pw.add(lf, weight=1)
+
+    def _goto_analysis(self):
+        self.nb.select(self.analysis_tab)
+        if self.sheets:
+            self._analyze()
+        else:
+            self._add_xlsx()
+            if self.sheets:
+                self._analyze()
+
+    def _analyze(self):
+        if not self.sheets:
+            messagebox.showinfo(APP_NAME, "Primero carga el inventario (pestaña 1).")
+            return None
+        from .assessment import Assessment
+        a = Assessment(self.sheets, self.v_an_client.get().strip(), self.v_an_author.get().strip())
+        self.an_txt.delete("1.0", "end")
+        self.an_txt.insert("end", a.text_summary())
+        self.an_tree.delete(*self.an_tree.get_children())
+        for f in a.findings:
+            self.an_tree.insert("", "end", values=(f["Severidad"], f["Categoría"], f["Hallazgo"], f["Afectados"],
+                                                   ", ".join(map(str, f["Objetos"][:20])), f["Recomendación"]), tags=(f["Severidad"],))
+        self.status.set(f"Análisis: {len(a.findings)} hallazgos. Pulsa «Generar informe…» para crear el Word y el Excel.")
+        return a
+
+    def _export_analysis(self):
+        a = self._analyze()
+        if not a:
+            return
+        docx, xlsx, charts = self.v_an_docx.get(), self.v_an_xlsx.get(), self.v_an_charts.get()
+        if not (docx or xlsx):
+            messagebox.showwarning(APP_NAME, "Marca al menos un documento.")
+            return
+        folder = filedialog.askdirectory(title="Carpeta donde guardar el informe")
+        if not folder:
+            return
+        self._save_settings(author=self.v_an_author.get().strip(), an_docx=docx, an_xlsx=xlsx, an_charts=charts)
+        base = "Analisis_infraestructura" + ("_" + a.client.replace(" ", "_") if a.client else "")
+        self.status.set("Generando informe de análisis…")
+
+        def work():
+            try:
+                from .report_assessment import generate
+                out = generate(a, folder, base, docx=docx, xlsx=xlsx, charts=charts and docx)
+                self.after(0, lambda: self._done(out))
+            except Exception as exc:  # noqa: BLE001
+                msg = f"No se pudo generar: {exc}"
+                self.after(0, lambda: messagebox.showerror(APP_NAME, msg))
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _pick_template(self):
         p = filedialog.askopenfilename(title="Plantilla de la hoja de configuración", filetypes=[("Excel", "*.xlsx")])

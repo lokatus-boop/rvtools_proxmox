@@ -7,6 +7,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.ticker import MaxNLocator  # noqa: E402
 
 # Paleta categórica validada (orden fijo) y colores de estado
 C1, C2, C3 = "#2a78d6", "#eb6834", "#1baf7a"
@@ -50,7 +51,7 @@ def _hbar_labels(ax, bars, fmt="{:.0f}", pad=0.01):
 
 
 # ------------------------------------------------------------------ situación actual
-def source_hosts(plan, folder):
+def source_hosts(plan, folder, suffix=" de origen"):
     hs = plan.an.hosts
     if not hs:
         return None
@@ -68,14 +69,14 @@ def source_hosts(plan, folder):
     b = a1.barh([i + h / 2 for i in y], [by_node.get((x.cluster, x.node), [0, 0])[0] for x in hs], height=h, color=C1, label="vCPU asignadas (encendidas)")
     a1.set_yticks(list(y), labels)
     a1.invert_yaxis()
-    a1.set_title("CPU por nodo de origen")
+    a1.set_title(f"CPU por nodo{suffix}")
     _hbar_labels(a1, b)
     _legend_below(a1, ncol=2)
     a2.barh([i - h / 2 for i in y], [x.ram_gib for x in hs], height=h, color=SEQ_LIGHT, label="RAM física (GiB)")
     b = a2.barh([i + h / 2 for i in y], [x.ram_used_gib for x in hs], height=h, color=C1, label="RAM usada (GiB)")
     a2.set_yticks(list(y), [""] * len(hs))
     a2.invert_yaxis()
-    a2.set_title("Memoria por nodo de origen")
+    a2.set_title(f"Memoria por nodo{suffix}")
     _hbar_labels(a2, b)
     _legend_below(a2, ncol=2)
     fig.tight_layout()
@@ -92,6 +93,7 @@ def os_distribution(plan, folder):
     bars = ax.barh([k for k, _ in c], [v for _, v in c], color=C1, height=0.6)
     ax.invert_yaxis()
     ax.set_title("VMs/CTs por sistema operativo")
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.grid(axis="y", visible=False)
     ax.set_xlim(0, max(v for _, v in c) * 1.15)
     _hbar_labels(ax, bars)
@@ -103,6 +105,7 @@ def vm_sizes(plan, folder):
     fig, ax = plt.subplots(figsize=(5.2, 2.6))
     bars = ax.bar(list(b), list(b.values()), color=C1, width=0.6)
     ax.set_title("Tamaño de las VMs (vCPU)")
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.grid(axis="x", visible=False)
     for r in bars:
         if r.get_height():
@@ -110,7 +113,7 @@ def vm_sizes(plan, folder):
     return _save(fig, folder, "origen_tamanos.png")
 
 
-def source_storage(plan, folder):
+def source_storage(plan, folder, title="Almacenamientos de origen"):
     rows = [r for r in plan.an.storage_usage() if r["Total (GiB)"]]
     rows.sort(key=lambda r: r["Total (GiB)"], reverse=True)
     rows = rows[:14]
@@ -126,7 +129,7 @@ def source_storage(plan, folder):
         ax.text(used[i] + free[i], i, f"  {r['Uso (%)']:.0f} %", va="center", fontsize=8, color=INK2)
     ax.invert_yaxis()
     ax.set_xlabel("TiB")
-    ax.set_title("Almacenamientos de origen")
+    ax.set_title(title)
     _legend_below(ax, ncol=3)
     ax.grid(axis="y", visible=False)
     return _save(fig, folder, "origen_almacenamiento.png")

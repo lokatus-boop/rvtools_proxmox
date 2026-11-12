@@ -12,7 +12,7 @@ from .scenario import STORAGE_TYPES
 
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
-SEV_FILL = {"BLOQUEO": PatternFill("solid", fgColor="F8CBAD"), "AVISO": PatternFill("solid", fgColor="FFE699"),
+SEV_FILL = {"BLOQUEO": PatternFill("solid", fgColor="F8CBAD"), "CRÍTICO": PatternFill("solid", fgColor="F8CBAD"), "AVISO": PatternFill("solid", fgColor="FFE699"),
             "INFO": PatternFill("solid", fgColor="DDEBF7")}
 
 

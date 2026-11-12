@@ -166,3 +166,40 @@ def test_loader_damaged_file_message():
         f.write(b"\0" * 1000)
     with pytest.raises(InventoryError, match="vacío"):
         load(p)
+
+
+def test_solo_analisis_informe():
+    """Modo solo análisis: Word + Excel sin plan de migración, también desde CLI y con inventario anonimizado."""
+    from openpyxl import load_workbook
+
+    from pvemigplan.assessment import Assessment
+    from pvemigplan.cli import main
+    from pvemigplan.report_assessment import generate
+    sh = sample_sheets()
+    a = Assessment(sh, "Cliente", "Autor")
+    assert a.findings and all(f["Severidad"] in ("CRÍTICO", "AVISO", "INFO") for f in a.findings)
+    assert any(f["Categoría"] == "Versiones" for f in a.findings)       # PVE 7.4 sin soporte
+    assert sum(a.backup_age().values()) == len(a.an.guests)
+    d = tempfile.mkdtemp()
+    xl = generate(a, d, "inf", docx=False)[0]
+    wb = load_workbook(xl, read_only=True)
+    assert {"Resumen", "Hallazgos", "Uso por nodo", "VMs"} <= set(wb.sheetnames)
+    assert not any("ola" in s.lower() or "destino" in s.lower() for s in wb.sheetnames)
+    try:  # el Word necesita python-docx y matplotlib (no están en el CI del inventario)
+        import docx  # noqa: F401
+        import matplotlib  # noqa: F401
+    except ImportError:
+        docx = None
+    if docx:
+        out = generate(a, d, "inf", xlsx=False, charts=True)
+        assert len(os.listdir(os.path.join(d, "inf_graficos"))) >= 10
+        from docx import Document
+        text = "\n".join(p.text for p in Document(out[0]).paragraphs).lower()
+        assert "hallazgos" in text and "ola " not in text and "plan de migración" not in text
+    # CLI con un inventario anonimizado
+    from pvetools.anonymize import Anonymizer
+    inv = os.path.join(d, "inv.xlsx")
+    to_xlsx(Anonymizer().anonymize(sample_sheets()), inv)
+    assert main([inv, "--analisis", "-o", d, "-q", "--sin-word"]) == 0
+    assert os.path.exists(os.path.join(d, "analisis_infraestructura.xlsx"))
+    assert Assessment(load(inv)).anonymized
