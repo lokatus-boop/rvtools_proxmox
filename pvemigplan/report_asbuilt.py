@@ -8,6 +8,7 @@ from .analysis import Analysis
 from .branding import COMPANY
 from .loader import num, yes
 from .report_docx import GREY, Doc
+from pvetools.safefile import atomic_save
 
 SKIP_WORDS = ("password", "contraseña", "secret", "token", "key", "clave", "voucher")
 
@@ -221,7 +222,7 @@ class AsBuiltDoc(Doc):
         self.kv([("Cliente: responsable técnico", "________"), ("Fsas Technologies: proyecto / preventa", self.author or "________"),
                  ("Soporte Proxmox (suscripción)", "Portal de clientes de Proxmox / Fsas Technologies"),
                  ("Soporte hardware", "Fsas Technologies (nº de serie en la hoja de configuración)")])
-        self.d.save(path)
+        path = atomic_save(path, self.d.save)
         return path
 
 

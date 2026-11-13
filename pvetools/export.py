@@ -11,6 +11,7 @@ from openpyxl.utils import get_column_letter
 from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, asset_path
 from .schema import FORMAT_VERSION, SCHEMA
+from .safefile import atomic_save, atomic_text
 
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -56,8 +57,7 @@ def to_xlsx(sheets: dict, path: str):
                 if fill:
                     for cell in row:
                         cell.fill = fill
-    wb.save(path)
-    return path
+    return atomic_save(path, wb.save)
 
 
 ANON_NOTICE = ("INVENTARIO ANONIMIZADO: los nombres de clústeres, nodos, VMs, almacenamientos, usuarios, dominios, etc. "
@@ -109,13 +109,13 @@ def to_csv(sheets: dict, folder: str, prefix: str = ""):
         p = os.path.join(folder, f"{prefix}{name}.csv")
         cols = columns(rows, name)
         # utf-8-sig + ';' para que Excel en español lo abra directamente
-        with open(p, "w", newline="", encoding="utf-8-sig") as f:
+        with atomic_text(p, encoding="utf-8-sig", newline="") as f:
             w = csv.DictWriter(f, fieldnames=cols or ["(sin datos)"], delimiter=";")
             w.writeheader()
             w.writerows(rows)
         paths.append(p)
     p = os.path.join(folder, f"{prefix}LEEME_AVISO.txt")
-    with open(p, "w", encoding="utf-8-sig") as f:
+    with atomic_text(p, encoding="utf-8-sig") as f:
         f.write(f"{APP_NAME} {__version__} - {COMPANY}\n\n")
         if is_anonymized(sheets):
             f.write(ANON_NOTICE + "\n\n")

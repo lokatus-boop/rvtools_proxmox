@@ -21,6 +21,8 @@ import os
 import re
 import secrets
 
+from .safefile import atomic_save, atomic_text
+
 MAP_FORMAT = 1
 MAP_SHEET = "Correspondencia"
 KEY_SHEET = "Clave"
@@ -420,7 +422,7 @@ class Anonymizer:
         ks.append(["Reutiliza este fichero en la próxima anonimización para que los mismos valores reciban los "
                    "mismos seudónimos (p. ej. al inventariar otro clúster del mismo cliente)."])
         ks.sheet_state = "hidden"
-        wb.save(path)
+        atomic_save(path, wb.save)
         return path
 
     @classmethod
@@ -492,11 +494,11 @@ def reverse_file(path: str, mapping_path: str, out_path: str | None = None) -> s
                 for c in row:
                     if isinstance(c.value, str) and not c.value.startswith("="):
                         c.value = sub(c.value)
-        wb.save(out_path)
+        atomic_save(out_path, wb.save)
     elif ext.lower() in (".csv", ".txt"):
         with open(path, encoding="utf-8-sig") as f:
             data = f.read()
-        with open(out_path, "w", encoding="utf-8-sig") as f:
+        with atomic_text(out_path, encoding="utf-8-sig") as f:
             f.write("\n".join(sub(line) for line in data.split("\n")))
     else:
         raise ValueError("Solo se pueden revertir ficheros Excel (.xlsx) o CSV")

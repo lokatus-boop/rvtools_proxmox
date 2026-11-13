@@ -4,6 +4,8 @@ from __future__ import annotations
 import copy
 import json
 
+from pvetools.safefile import atomic_text
+
 PVE_VERSIONS = ["9.1", "9.0", "8.4"]
 PBS_VERSIONS = {"9.1": "4.1", "9.0": "4.0", "8.4": "3.4"}
 STORAGE_TYPES = {
@@ -96,5 +98,5 @@ def load(path: str) -> dict:
 
 
 def save(sc: dict, path: str):
-    with open(path, "w", encoding="utf-8") as f:
+    with atomic_text(path, encoding="utf-8") as f:
         json.dump(sc, f, ensure_ascii=False, indent=2)

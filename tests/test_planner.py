@@ -243,3 +243,18 @@ def test_sdn_en_informes():
     doc = Document(out)
     text = "\n".join(p.text for p in doc.paragraphs) + "\n".join(c.text for t in doc.tables for r in t.rows for c in r.cells)
     assert "Zonas SDN" in text and "evpnctl" in text and "tenant2" in text
+
+
+def test_nombre_cliente_con_caracteres_no_validos():
+    """«:» o «/» en el nombre del cliente no deben mandar los ficheros a otra carpeta ni a un flujo NTFS oculto."""
+    pytest.importorskip("docx")
+    from pvemigplan.outputs import generate
+    from pvetools.safefile import safe_filename
+    d = _inventory_files()
+    sc = scenario.new()
+    sc["cliente"] = "ACME: Sede/Norte"
+    plan = Plan(load(os.path.join(d, "inv.xlsx")), sc)
+    out_dir = os.path.join(d, "salida")
+    out = generate(plan, out_dir, "Plan_migracion_" + safe_filename(sc["cliente"]), design=False)
+    assert out and all(os.path.dirname(p) == os.path.abspath(out_dir) for p in out)
+    assert sorted(os.listdir(out_dir)) == sorted(os.path.basename(p) for p in out)

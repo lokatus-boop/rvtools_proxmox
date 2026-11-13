@@ -146,6 +146,17 @@ pveinventory-cli.exe --host pve1 --user inventario@pve --token-id inv --token-se
 pveinventory-cli.exe --revertir plan_migracion.xlsx --correspondencia inventario_anonimo_correspondencia_CONFIDENCIAL.xlsx
 ```
 
+## Si el Excel no aparece o no se abre
+
+Desde la versión 0.7.1 del inventario (0.4.1 del planificador) todos los ficheros se guardan de forma segura: se escriben primero en un temporal de la misma carpeta, se comprueba que el Excel/Word es válido y solo entonces se renombra al nombre final. Si algo falla, queda el fichero anterior intacto y sale un mensaje con la causa. Al terminar se muestra la ruta completa con un botón «Mostrar en la carpeta».
+
+Si aun así hay problemas, las causas habituales en los equipos de los usuarios son:
+
+* **El .exe se abrió desde dentro del ZIP o del correo** sin descomprimir: Windows lo ejecuta desde una carpeta temporal que borra después. Descomprime el ZIP antes de usarlo.
+* **«Acceso controlado a carpetas» de Windows Defender** bloquea a programas nuevos la escritura en Documentos y Escritorio. Aparece un aviso de Windows Security; guarda en otra carpeta o pide que se permita el .exe.
+* **Carpeta sincronizada (OneDrive, SharePoint) o unidad de red**: el fichero puede tardar en subir o quedarse como «solo en la nube». Espera a que termine la sincronización antes de enviarlo o copiarlo.
+* **El fichero estaba abierto en Excel** al volver a exportar con el mismo nombre: ciérralo y repite.
+
 ## Compilar el .exe
 
 Opción A, en un PC Windows con Python 3.10+ instalado: ejecuta `build.bat`. Genera `dist\PVEInventory.exe` (GUI) y `dist\pveinventory-cli.exe` (consola), que son autónomos y se pueden copiar a cualquier Windows 10/11 sin instalar nada.

@@ -12,6 +12,7 @@ from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, DISCLAIMER_TITLE, DISCLAIMER_VERSION, SHORT_NOTICE, asset_path
 from .loader import InventoryError, format_warnings, load
 from .scenario import PVE_VERSIONS, STORAGE_TYPES, load as load_scenario, new, save as save_scenario
+from pvetools.safefile import default_folder, ensure_ext, explain, reveal, safe_filename
 
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"), "PVEMigrationPlanner")
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
@@ -161,6 +162,7 @@ class App(tk.Tk):
         self.plan = None
         self.catalog_path = None
         self.vars = {}
+        self._busy = False
         self._build()
         self._from_scenario()
         self.after(300, self._first_run_notice)
@@ -537,23 +539,17 @@ class App(tk.Tk):
         if not (docx or xlsx):
             messagebox.showwarning(APP_NAME, "Marca al menos un documento.")
             return
-        folder = filedialog.askdirectory(title="Carpeta donde guardar el informe")
+        folder = self._ask_folder("Carpeta donde guardar el informe")
         if not folder:
             return
         self._save_settings(author=self.v_an_author.get().strip(), an_docx=docx, an_xlsx=xlsx, an_charts=charts)
-        base = "Analisis_infraestructura" + ("_" + a.client.replace(" ", "_") if a.client else "")
-        self.status.set("Generando informe de análisis…")
+        base = "Analisis_infraestructura" + ("_" + safe_filename(a.client) if a.client else "")
 
-        def work():
-            try:
-                from .report_assessment import generate
-                out = generate(a, folder, base, docx=docx, xlsx=xlsx, charts=charts and docx)
-                self.after(0, lambda: self._done(out))
-            except Exception as exc:  # noqa: BLE001
-                msg = f"No se pudo generar: {exc}"
-                self.after(0, lambda: messagebox.showerror(APP_NAME, msg))
+        def job():
+            from .report_assessment import generate
+            return generate(a, folder, base, docx=docx, xlsx=xlsx, charts=charts and docx)
 
-        threading.Thread(target=work, daemon=True).start()
+        self._run_job("Generando informe de análisis…", job, folder)
 
     def _pick_template(self):
         p = filedialog.askopenfilename(title="Plantilla de la hoja de configuración", filetypes=[("Excel", "*.xlsx")])
@@ -584,24 +580,21 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, str(exc))
             return
         client = self.v_ab_client.get().strip() or (self.sc.get("cliente") or "")
-        p = filedialog.asksaveasfilename(defaultextension=".docx", initialfile="documentacion_asbuilt.docx", filetypes=[("Word", "*.docx")])
+        default = "Documentacion_asbuilt" + ("_" + safe_filename(client) if client else "") + ".docx"
+        p = filedialog.asksaveasfilename(defaultextension=".docx", initialfile=default, initialdir=self._out_dir(),
+                                         filetypes=[("Word", "*.docx")])
         if not p:
             return
-        self._save_settings(author=self.v_ab_author.get().strip())
+        p = os.path.abspath(ensure_ext(os.path.normpath(p), ".docx"))
+        self._save_settings(author=self.v_ab_author.get().strip(), last_output_dir=os.path.dirname(p))
         cfg = self.v_ab_cfg.get().strip() or None
         author = self.v_ab_author.get().strip()
-        self.status.set("Generando documentación as-built…")
 
-        def work():
-            try:
-                from .report_asbuilt import to_asbuilt_docx
-                out = [to_asbuilt_docx(sheets, p, client, author, cfg)]
-                self.after(0, lambda: self._done(out))
-            except Exception as exc:  # noqa: BLE001
-                msg = f"No se pudo generar: {exc}"
-                self.after(0, lambda: messagebox.showerror(APP_NAME, msg))
+        def job():
+            from .report_asbuilt import to_asbuilt_docx
+            return [to_asbuilt_docx(sheets, p, client, author, cfg)]
 
-        threading.Thread(target=work, daemon=True).start()
+        self._run_job("Generando documentación as-built…", job, p)
 
     # ------------------------------------------------------------------ escenario <-> UI
     def _from_scenario(self):
@@ -797,33 +790,72 @@ class App(tk.Tk):
         if not any(sel.values()):
             messagebox.showwarning(APP_NAME, "Marca al menos un documento.")
             return
-        folder = filedialog.askdirectory(title="Carpeta donde guardar los documentos")
+        folder = self._ask_folder("Carpeta donde guardar los documentos")
         if not folder:
             return
         self._save_settings(config_template=tmpl, out_charts=self.v_charts.get(), **{"out_" + k: v for k, v in sel.items()})
-        base = "Plan_migracion_" + ((plan.sc.get("cliente") or "plan").strip().replace(" ", "_"))
+        base = "Plan_migracion_" + safe_filename(plan.sc.get("cliente") or "", "plan")
         charts = self.v_charts.get()
-        self.status.set("Generando documentos…")
+
+        def job():
+            from .outputs import generate
+            return generate(plan, folder, base, xlsx=sel["xlsx"], design=sel["design"], impl=sel["impl"],
+                            charts=charts and sel["design"], config_template=tmpl if sel["config"] else None)
+
+        self._run_job("Generando documentos…", job, folder)
+
+    # ------------------------------------------------------------------ generación en segundo plano
+    def _out_dir(self) -> str:
+        return default_folder(self._settings().get("last_output_dir"))
+
+    def _ask_folder(self, title: str):
+        folder = filedialog.askdirectory(title=title, initialdir=self._out_dir())
+        if not folder:
+            return None
+        folder = os.path.abspath(os.path.normpath(folder))
+        self._save_settings(last_output_dir=folder)
+        return folder
+
+    def _run_job(self, label: str, fn, where: str):
+        """Genera en un hilo aparte; impide lanzar dos generaciones a la vez (escribirían los mismos ficheros)."""
+        if self._busy:
+            messagebox.showinfo(APP_NAME, "Ya se están generando documentos. Espera a que termine.")
+            return
+        self._busy = True
+        self.config(cursor="watch")
+        self.status.set(label)
 
         def work():
             try:
-                from .outputs import generate
-                out = generate(plan, folder, base, xlsx=sel["xlsx"], design=sel["design"], impl=sel["impl"],
-                               charts=charts and sel["design"], config_template=tmpl if sel["config"] else None)
-                self.after(0, lambda: self._done(out))
+                out = [os.path.abspath(p) for p in fn()]
             except Exception as exc:  # noqa: BLE001
-                msg = f"No se pudo generar: {exc}"
-                self.after(0, lambda: messagebox.showerror(APP_NAME, msg))
+                self.after(0, lambda e=exc: self._job_end(None, e, where))
+            else:
+                self.after(0, lambda: self._job_end(out, None, where))
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _job_end(self, out, exc, where):
+        self._busy = False
+        self.config(cursor="")
+        if exc is not None:
+            self.status.set("No se pudo generar: " + str(exc).splitlines()[0][:200])
+            messagebox.showerror(APP_NAME, "No se pudo generar.\n\n" + explain(exc, where))
+            return
+        self._done(out)
+
+    def _on_close(self):
+        if self._busy and not messagebox.askyesno(
+                APP_NAME, "Todavía se están generando documentos.\nSi cierras ahora, no se guardarán.\n\n¿Cerrar igualmente?"):
+            return
+        self.destroy()
+
     def _done(self, out):
-        self.status.set("Generado: " + " · ".join(out))
-        if messagebox.askyesno(APP_NAME, "Documentos generados:\n\n" + "\n".join(out) + "\n\n¿Abrir la carpeta?"):
-            try:
-                os.startfile(os.path.dirname(out[0]))  # type: ignore[attr-defined]
-            except (AttributeError, OSError):
-                pass
+        folder = os.path.dirname(out[0]) if out else ""
+        self.status.set(f"Generado en {folder}: " + " · ".join(os.path.basename(p) for p in out))
+        if messagebox.askyesno(APP_NAME, f"Documentos generados en:\n{folder}\n\n"
+                               + "\n".join("• " + os.path.basename(p) for p in out) + "\n\n¿Mostrar en la carpeta?"):
+            reveal(out[0])
 
     # ------------------------------------------------------------------ ficheros
     def _open_scenario(self):
@@ -843,10 +875,17 @@ class App(tk.Tk):
         except ValueError as exc:
             messagebox.showerror(APP_NAME, str(exc))
             return
-        p = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("Escenario", "*.json")])
+        p = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("Escenario", "*.json")],
+                                         initialdir=self._out_dir())
         if p:
-            save_scenario(sc, p)
+            p = os.path.abspath(ensure_ext(os.path.normpath(p), ".json"))
+            try:
+                save_scenario(sc, p)
+            except Exception as exc:  # noqa: BLE001
+                messagebox.showerror(APP_NAME, explain(exc, p))
+                return
             self.sc = sc
+            self.status.set(f"Escenario guardado en {p}")
 
     def _load_catalog(self):
         p = filedialog.askopenfilename(filetypes=[("Catálogo", "*.json")])
@@ -902,6 +941,18 @@ class App(tk.Tk):
         d.grab_set()
 
 
+def _report_error(app):
+    """El .exe no tiene consola: cualquier error no previsto se muestra en una ventana en lugar de perderse."""
+    def handler(exc, val, tb):
+        import traceback
+        detail = "".join(traceback.format_exception(exc, val, tb))
+        messagebox.showerror(APP_NAME, f"Error inesperado: {val}\n\n{detail[-1500:]}")
+    app.report_callback_exception = handler
+
+
 def main():
-    App().mainloop()
+    app = App()
+    _report_error(app)
+    app.protocol("WM_DELETE_WINDOW", app._on_close)
+    app.mainloop()
     return 0

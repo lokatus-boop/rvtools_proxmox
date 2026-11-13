@@ -10,6 +10,8 @@ import re
 from openpyxl import load_workbook
 from openpyxl.styles import Font
 
+from pvetools.safefile import atomic_save
+
 PROPOSED = Font(color="1F4E78", italic=True)   # valores propuestos por el planificador (a confirmar)
 
 NET_ROWS = {  # nombre en la plantilla → nombre de red del plan
@@ -192,5 +194,5 @@ def fill(plan, template_path: str, out_path: str) -> str:
         hdr = _find_row(ws, "host") or 5
         for i, n in enumerate(plan.nodes):
             _set(ws, hdr + 1 + i, 2, n["name"])
-    wb.save(out_path)
+    out_path = atomic_save(out_path, wb.save)
     return out_path

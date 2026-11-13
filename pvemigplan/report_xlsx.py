@@ -9,6 +9,7 @@ from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, asset_path
 from .catalog import TB_TO_GIB
 from .scenario import STORAGE_TYPES
+from pvetools.safefile import atomic_save
 
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -224,7 +225,7 @@ def to_xlsx(plan, path):
     _table(wb, "Olas detalle", wave_rows(plan))
     _table(wb, "Riesgos", plan.issues)
     _table(wb, "Origen", plan.an.by_cluster())
-    wb.save(path)
+    path = atomic_save(path, wb.save)
     return path
 
 

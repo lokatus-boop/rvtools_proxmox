@@ -9,6 +9,7 @@ from .config_sheet import defaults_from_inventory
 from .report_docx import GREY, Doc
 from .sdn_commands import sdn_commands
 from .scenario import PBS_VERSIONS, STORAGE_TYPES
+from pvetools.safefile import atomic_save
 
 BLANK = "________"
 
@@ -204,7 +205,7 @@ class ImplDoc(Doc):
         self.h("12. Entrega a postventa")
         self.p("Al terminar, ejecutar PVE Inventory contra el nuevo clúster" + (" y el PBS" if plan.pbs else "")
                + " y generar con el planificador la documentación «as-built» para el departamento de postventa.")
-        self.d.save(path)
+        path = atomic_save(path, self.d.save)
         if not charts_dir:
             for f in charts.values():
                 try:
