@@ -9,6 +9,7 @@ import os
 from . import APP_NAME, __version__
 from .assessment import CRIT, INFO, WARN, Assessment
 from .branding import COMPANY, DISCLAIMER, asset_path
+from pvetools.safefile import atomic_save
 
 
 def to_assessment_docx(a: Assessment, path, charts_dir=None):
@@ -83,8 +84,7 @@ def to_assessment_xlsx(a: Assessment, path):
                         "Uso CPU (%)": g.cpu_use_pct, "Uso memoria (%)": g.mem_use_pct, "Último backup": g.last_backup}
                        for g in an.all_guests])
     _table(wb, "Avisos inventario (vHealth)", list(a.sheets.get("vHealth", [])))
-    wb.save(path)
-    return path
+    return atomic_save(path, wb.save)
 
 
 def generate(a: Assessment, folder, base="analisis_infraestructura", docx=True, xlsx=True, charts=False):

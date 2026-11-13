@@ -15,6 +15,7 @@ from .branding import COMPANY, asset_path
 from .charts import all_charts
 from .network import USO_LABEL
 from .scenario import PBS_VERSIONS, STORAGE_TYPES
+from pvetools.safefile import atomic_save
 
 BRAND = RGBColor(0x1F, 0x4E, 0x78)
 GREY = RGBColor(0x55, 0x55, 0x55)
@@ -558,7 +559,7 @@ class Doc:
             "Los tiempos de migración dependen del rendimiento real de red y almacenamiento; la ola piloto permite ajustarlos.",
             f"Documento generado a partir del inventario de PVE Inventory el {plan.generated:%d/%m/%Y}.",
         ])
-        self.d.save(path)
+        path = atomic_save(path, self.d.save)
         for f in ([] if charts_dir else charts.values()):
             try:
                 os.remove(f)

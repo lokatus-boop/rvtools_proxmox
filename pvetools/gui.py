@@ -15,6 +15,7 @@ from .api import METHOD_NAMES
 from .collector import SHEET_GROUPS, SHEETS, Inventory
 from .anonymize import Anonymizer, default_map_path, reverse_file
 from .export import columns, to_csv, to_xlsx
+from .safefile import default_folder, ensure_ext, explain, reveal
 
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"), "PVEInventory")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "connections.json")
@@ -489,27 +490,77 @@ class App(tk.Tk):
             return
         suffix = "_anonimo" if self.v_anon.get() else ""
         default = f"pve_inventory_{dt.datetime.now():%Y%m%d_%H%M%S}{suffix}.xlsx"
-        p = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=default,
+        p = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=default, initialdir=self._export_dir(),
                                          filetypes=[("Excel", "*.xlsx")])
-        if p:
+        if not p:
+            return
+        p = os.path.abspath(ensure_ext(os.path.normpath(p), ".xlsx"))
+        self._remember_export_dir(os.path.dirname(p))
+        self.status.set(f"Guardando {p}…")
+        self.config(cursor="watch")
+        self.update_idletasks()
+        try:
             sheets, map_path = self._export_sheets(p)
-            to_xlsx(sheets, p)
-            self.status.set(f"Excel{' anonimizado' if map_path else ''} guardado en {p}")
-            if map_path:
-                self._anon_done("Excel", map_path)
-            if os.name == "nt" and messagebox.askyesno(APP_NAME, "Excel guardado. ¿Abrirlo ahora?"):
-                os.startfile(p)  # noqa: S606
+            p = to_xlsx(sheets, p)
+        except Exception as exc:  # noqa: BLE001
+            self.status.set("No se pudo guardar el Excel")
+            messagebox.showerror(APP_NAME, explain(exc, p))
+            return
+        finally:
+            self.config(cursor="")
+        self.status.set(f"Excel{' anonimizado' if map_path else ''} guardado en {p}")
+        if map_path:
+            self._anon_done("Excel", map_path)
+        self._saved_dialog("Excel guardado en:", p)
+
+    def _saved_dialog(self, title: str, path: str):
+        """Muestra la ruta completa y ofrece abrir el fichero o la carpeta."""
+        d = tk.Toplevel(self)
+        d.title(APP_NAME)
+        d.transient(self)
+        d.resizable(False, False)
+        frm = ttk.Frame(d, padding=14)
+        frm.pack(fill="both", expand=True)
+        ttk.Label(frm, text=title).pack(anchor="w")
+        e = ttk.Entry(frm, width=90)
+        e.insert(0, path)
+        e.configure(state="readonly")
+        e.pack(anchor="w", pady=(4, 10), fill="x")
+        bar = ttk.Frame(frm)
+        bar.pack(anchor="e")
+        if os.path.isfile(path) and os.name == "nt":
+            ttk.Button(bar, text="Abrir", command=lambda: (os.startfile(path), d.destroy())).pack(side="left", padx=4)  # noqa: S606
+        ttk.Button(bar, text="Mostrar en la carpeta", command=lambda: (reveal(path), d.destroy())).pack(side="left", padx=4)
+        ttk.Button(bar, text="Cerrar", command=d.destroy).pack(side="left", padx=4)
+        d.grab_set()
+
+    def _export_dir(self) -> str:
+        return default_folder(self._read_settings().get("last_export_dir"))
+
+    def _remember_export_dir(self, folder: str):
+        st = self._read_settings()
+        st["last_export_dir"] = folder
+        self._write_settings(st)
 
     def _export_csv(self):
         if not self._need_data():
             return
-        d = filedialog.askdirectory()
-        if d:
+        d = filedialog.askdirectory(title="Carpeta donde guardar los CSV", initialdir=self._export_dir())
+        if not d:
+            return
+        d = os.path.abspath(os.path.normpath(d))
+        self._remember_export_dir(d)
+        try:
             sheets, map_path = self._export_sheets(d)
             to_csv(sheets, d)
-            self.status.set(f"CSV{' anonimizados' if map_path else ''} guardados en {d}")
-            if map_path:
-                self._anon_done("CSV", map_path)
+        except Exception as exc:  # noqa: BLE001
+            self.status.set("No se pudieron guardar los CSV")
+            messagebox.showerror(APP_NAME, explain(exc, d))
+            return
+        self.status.set(f"CSV{' anonimizados' if map_path else ''} guardados en {d}")
+        if map_path:
+            self._anon_done("CSV", map_path)
+        self._saved_dialog("CSV guardados en la carpeta:", d)
 
     def _revert(self):
         files = filedialog.askopenfilenames(title="Excel/CSV anonimizado (inventario o plan) a revertir",
@@ -521,9 +572,9 @@ class App(tk.Tk):
         if not m:
             return
         try:
-            out = [reverse_file(f, m) for f in files]
+            out = [os.path.abspath(reverse_file(f, m)) for f in files]
         except Exception as e:  # noqa: BLE001
-            messagebox.showerror(APP_NAME, f"No se pudo revertir: {e}")
+            messagebox.showerror(APP_NAME, "No se pudo revertir: " + explain(e, files[0]))
             return
         self.status.set(f"Revertido: {', '.join(out)}")
         messagebox.showinfo(APP_NAME, "Ficheros con los nombres reales:\n\n" + "\n".join(out) +
@@ -551,5 +602,16 @@ def _sort_key(v):
     return (1, 0, str(v).lower())
 
 
+def _report_error(app):
+    """El .exe no tiene consola: cualquier error no previsto se muestra en una ventana en lugar de perderse."""
+    def handler(exc, val, tb):
+        import traceback
+        detail = "".join(traceback.format_exception(exc, val, tb))
+        messagebox.showerror(APP_NAME, f"Error inesperado: {val}\n\n{detail[-1500:]}")
+    app.report_callback_exception = handler
+
+
 def main():
-    App().mainloop()
+    app = App()
+    _report_error(app)
+    app.mainloop()

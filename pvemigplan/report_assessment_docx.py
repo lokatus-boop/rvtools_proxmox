@@ -8,6 +8,7 @@ from .assessment import CRIT, INFO, WARN, Assessment
 from .branding import COMPANY
 from .loader import num
 from .report_docx import GREY, Doc, _shade
+from pvetools.safefile import atomic_save
 
 SEV_HEX = {CRIT: "F8CBAD", WARN: "FFE699", INFO: "DDEBF7"}
 SEV_LABEL = {CRIT: "Crítico", WARN: "Aviso", INFO: "Informativo"}
@@ -230,5 +231,5 @@ class AssessmentDoc(Doc):
                    [[g.cluster, g.node, g.vmid, g.name, g.kind, "plantilla" if g.template else ("on" if g.running else "off"), g.vcpu,
                      round(g.ram_gib, 1), round(g.disk_prov_gib), g.os_label, "Sí" if g.ha else "", g.last_backup[:10]]
                     for g in an.all_guests], size=7)
-        self.d.save(path)
+        path = atomic_save(path, self.d.save)
         return path
