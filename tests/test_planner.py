@@ -157,6 +157,16 @@ def test_config_sheet_and_asbuilt():
     assert wb["Networks"]["G4"].value.endswith("GbE")
     doc = to_asbuilt_docx(sample_sheets(), os.path.join(d, "ab.docx"), "Acme", "PS", out)
     assert os.path.getsize(doc) > 10000
+    import docx
+    text = "\n".join(p.text for p in docx.Document(doc).paragraphs)
+    heads = [p.text for p in docx.Document(doc).paragraphs if p.style.name.startswith("Heading")]
+    assert any("Guía rápida" in h for h in heads) and any("Contacto y soporte" in h for h in heads)
+    for h in ("QDevice", "Réplicas", "gestión", "pruebas", "Snapshots"):
+        assert any(h in x for x in heads), h
+    assert "pvecm qdevice setup" in text and "pvecm qdevice remove" in text
+    tables = "\n".join(c.text for t in docx.Document(doc).tables for r in t.rows for c in r.cells)
+    assert "cac.serv@fujitsu.com" in tables and "914 521 035 / 914 521 036" in tables
+    assert "https://support.ts.fujitsu.com/login" in tables and "support.ts.fujitsu.com/download" in tables
 
 
 def test_loader_damaged_file_message():

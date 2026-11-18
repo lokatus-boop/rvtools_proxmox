@@ -5,6 +5,7 @@ import datetime as dt
 from collections import Counter
 
 from .analysis import Analysis
+from .asbuilt_cheatsheets import add_cheatsheets, add_contact
 from .branding import COMPANY
 from .loader import num, yes
 from .report_docx import GREY, Doc
@@ -207,7 +208,8 @@ class AsBuiltDoc(Doc):
         self.p("Almacenamiento de backup → seleccionar la copia → Restaurar (opción «live-restore» para arrancarla mientras se restaura). "
                "Para ficheros sueltos: «Restauración de ficheros».")
 
-        # 11. Datos de configuración
+        # 11. Datos de configuración (opcional)
+        n = 11
         if self.config_path:
             try:
                 cfg = read_config_sheet(self.config_path)
@@ -215,13 +217,16 @@ class AsBuiltDoc(Doc):
                 cfg = []
                 self.p(f"No se pudo leer la hoja de configuración: {exc}", italic=True, color=GREY)
             if cfg:
-                self.h("11. Datos de configuración (hoja de implementación)")
+                self.h(f"{n}. Datos de configuración (hoja de implementación)")
                 self.p("Valores de la hoja de configuración del proyecto (sin contraseñas ni claves).", italic=True, color=GREY)
                 self.kv(cfg, size=8.5)
-        self.h("Contactos y soporte", 2)
-        self.kv([("Cliente: responsable técnico", "________"), ("Fsas Technologies: proyecto / preventa", self.author or "________"),
-                 ("Soporte Proxmox (suscripción)", "Portal de clientes de Proxmox / Fsas Technologies"),
-                 ("Soporte hardware", "Fsas Technologies (nº de serie en la hoja de configuración)")])
+                n += 1
+
+        # Guía rápida (cheatsheet) y contacto
+        self.page_break()
+        add_cheatsheets(self, sh, n)
+        self.page_break()
+        add_contact(self, n + 1, self.author)
         path = atomic_save(path, self.d.save)
         return path
 
