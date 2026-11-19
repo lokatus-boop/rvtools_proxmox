@@ -48,8 +48,30 @@ Se ejecuta en local, no se conecta a ningún servidor y no envía nada a la nube
      y los hallazgos y *Generar informe…* crea el Word con gráficos y el Excel con los datos y el detalle de los hallazgos.
      También desde el botón *Solo análisis (informe sin migración)…* de la pestaña 1 o *Archivo → Informe de solo análisis*.
      No hace falta rellenar las pestañas 2-6.
-3. El escenario (todos los parámetros y el hardware) se puede guardar como JSON (*Archivo → Guardar escenario*) para
-   retomarlo o para usarlo desde la línea de comandos.
+3. **Guardar el proyecto** (*Archivo → Guardar proyecto*, `Ctrl+S`) crea un fichero `.pveplan` con todo lo necesario
+   para retomarlo más tarde sin volver a cargar nada: el **inventario cargado** (va dentro del fichero, así que funciona
+   aunque el Excel original se mueva o se borre), las VMs excluidas, cliente, autor y título, el **hardware introducido**,
+   red y switches, datos de implementación, PBS, migración, la opción «sin migración», los documentos marcados, la
+   plantilla de la hoja de configuración y los datos de las pestañas de as-built y de solo análisis. *Archivo → Abrir
+   proyecto* (`Ctrl+O`) lo recupera tal cual; también se abre al arrastrar el `.pveplan` sobre el `.exe`.
+   El fichero se queda en el equipo (no se sube a ningún sitio) y contiene datos del cliente: trátalo como el Excel del
+   inventario. El escenario solo con parámetros y hardware se puede seguir guardando como JSON (*Archivo → Guardar
+   escenario*) para usarlo como plantilla o desde la línea de comandos.
+
+### Solo documentos, sin migración (clúster nuevo)
+
+Para preparar los documentos de una plataforma nueva sin migrar nada (diseño para el cliente, guía de implementación, hoja
+de configuración y Excel):
+
+* Pestaña 1: pulsar **Sin inventario (clúster nuevo)** (o simplemente no cargar inventario: al calcular, el planificador
+  pregunta si se quiere documentar un clúster nuevo). También vale un inventario sin VMs/CTs.
+* Pestaña 2: modo **Usar el hardware disponible** e introducir los servidores; completar las pestañas 3 y 4.
+* Pestaña 6: *Generar documentos…*.
+
+Los documentos omiten la situación actual, las olas, el runbook de migración y la ubicación de VMs; el diseño incluye la
+capacidad que ofrece la plataforma y un apartado de puesta en marcha. Si el inventario sí tiene VMs pero no se va a
+migrar, marcar **Sin migración: solo documentar la nueva plataforma** en la pestaña 2: las VMs se usan solo para
+dimensionar y repartir la carga prevista.
 
 ![Red y switches](planificador_red.png)
 
@@ -84,6 +106,10 @@ pvemigplan-cli.exe inventario.xlsx -e escenario.json        :: hardware definido
 pvemigplan-cli.exe inventario.xlsx --hoja-config "C:\Plantillas\ProxmoxVE Project Configuration Sheet.xlsx"
 pvemigplan-cli.exe inventario.xlsx --analisis --cliente "ACME" -o C:\Informes\ACME   :: solo análisis, sin migración
 pvemigplan-cli.exe --asbuilt inventario_nuevo.xlsx --hoja-config hoja_completada.xlsx --cliente ACME --autor "PS"
+pvemigplan-cli.exe -e escenario.json --modo hardware --cliente ACME   :: clúster nuevo: sin inventario ni migración
+pvemigplan-cli.exe inventario.xlsx --sin-migracion                    :: con VMs, pero solo los documentos de la plataforma
+pvemigplan-cli.exe inventario.xlsx -e escenario.json --guardar-proyecto C:\Planes\ACME.pveplan
+pvemigplan-cli.exe -p C:\Planes\ACME.pveplan -o C:\Planes\ACME          :: regenerar desde un proyecto guardado
 ```
 
 `--sin-implementacion` omite la guía de implementación y `--sin-word` los documentos Word. En modo `--analisis`,

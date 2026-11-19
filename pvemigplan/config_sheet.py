@@ -138,7 +138,7 @@ def fill(plan, template_path: str, out_path: str) -> str:
             if tmpl or key.startswith("payload"):
                 _set(ws, r, 3, "n/a")
             continue
-        if n.get("vlan") and n["vlan"] not in ("-", "según inventario"):
+        if n.get("vlan") and n["vlan"] not in ("-", "según inventario", "por definir"):
             _set(ws, r, 3, n["vlan"])
         _set(ws, r, 6, n["mtu"] if n["mtu"] != "-" else None)
         _set(ws, r, 7, f"{n['gbps']:g} GbE")

@@ -41,8 +41,10 @@ class Plan:
         self.cat = load_catalog(catalog_path)
         al = sc["alcance"]
         self.an = Analysis(sheets, al["incluir_apagadas"], al["incluir_plantillas"], set(al.get("excluir") or []))
-        if not self.an.guests:
-            raise PlanError("No hay VMs/CTs en el alcance (revisa los filtros).")
+        # Sin VMs/CTs en el alcance (clúster nuevo, inventario vacío) o «sin migración» marcado: se generan los
+        # documentos de la nueva plataforma (diseño, implementación, hoja de configuración) sin el plan de migración.
+        self.has_load = bool(self.an.guests)
+        self.migrate = self.has_load and not sc.get("sin_migracion")
         self.req = requirements(self.an, sc)
         self.storage_type = sc["almacenamiento"]["tipo"]
         self.options = []
@@ -60,13 +62,18 @@ class Plan:
         self.nodes = self._name_nodes()
         self.placement = self._place()
         self.pbs = pbs_sizing(self.req, sc, self.cat) if sc["pbs"]["incluir"] else None
+        if self.pbs and not self.has_load:
+            # sin carga que proteger: la capacidad del datastore es la del PBS indicado o la de la configuración mínima
+            d = self.pbs.get("definido")
+            self.pbs["util_necesario_gib"] = d["util_gib"] if d and d["util_gib"] else self.pbs["propuesta"]["util_gib"]
+            self.pbs["sin_carga"] = True
         from .network import NetworkModel
         self.net = NetworkModel(self)
         self.networks = self.net.networks
         self.vlan_map = self._vlan_map()
         self.issues = self._issues()
-        self.method = self._method()
-        self.waves = self._waves()
+        self.method = self._method() if self.migrate else None
+        self.waves = self._waves() if self.migrate else []
         self.generated = dt.datetime.now()
 
     # ------------------------------------------------------------------ nodos y ubicación
@@ -171,16 +178,20 @@ class Plan:
         for a in self.eval["avisos"]:
             gen(AVISO, "Capacidad", a)
         vers = self.an.pve_versions()
-        if any(v.startswith(("6.", "7.")) for v in vers):
+        if self.migrate and any(v.startswith(("6.", "7.")) for v in vers):
             gen(AVISO, "Versiones", f"Origen en PVE {', '.join(vers)}: «qm remote-migrate» requiere PVE 7.3 o superior; si no, backup/restore.")
         if self.pbs:
             for a in self.pbs["avisos"]:
                 gen(AVISO, "PBS", a)
         h = self.an.health_counts()
-        if h.get("CRÍTICO"):
+        if h.get("CRÍTICO") and self.migrate:
             gen(AVISO, "Salud origen", f"El inventario tiene {h['CRÍTICO']} avisos críticos (hoja vHealth): revisar antes de migrar.")
         for n in self.req.notes:
             gen(INFO, "Dimensionado", n)
+        if not self.has_load:
+            gen(INFO, "Alcance", "Sin VMs/CTs en el alcance: se documenta la nueva plataforma sin plan de migración"
+                + (". El hardware aconsejado es la configuración mínima; indica el real en «Usar el hardware disponible»."
+                   if self.sc["modo"] == "aconsejar" else "."))
         order = {BLOQUEO: 0, AVISO: 1, INFO: 2}
         out.sort(key=lambda r: (order[r["Severidad"]], r["Clúster"], str(r["VMID"])))
         return out
@@ -283,7 +294,8 @@ class Plan:
             "nodos": e["nodos"], "cores": e["cores"], "ram_dest_gib": e["ram_gib"],
             "util_tib": e["almacenamiento_util_gib"] / 1024, "datos_tib": self.req.data_gib / 1024,
             "cpu_pct": e["cpu_pct"], "ram_pct": e["ram_pct"], "cpu_pct_n1": e["cpu_pct_n1"], "ram_pct_n1": e["ram_pct_n1"],
-            "ok": e["ok"], "olas": len(self.waves), "metodo": self.method["nombre"],
+            "ok": e["ok"], "olas": len(self.waves), "metodo": self.method["nombre"] if self.method else "",
+            "migracion": self.migrate, "carga": self.has_load,
             "bloqueos": sum(1 for r in self.issues if r["Severidad"] == BLOQUEO),
             "avisos": sum(1 for r in self.issues if r["Severidad"] == AVISO),
             "suscripciones_pve": e["sockets"],
@@ -294,6 +306,8 @@ class Plan:
 
     def text_summary(self) -> str:
         s = self.summary()
+        if not s["carga"]:
+            return self._text_summary_no_load(s)
         lines = [
             f"Origen: {s['vms']} VMs y {s['cts']} CTs en {s['hosts_origen']} nodos ({s['clusters_origen']} clúster(es)); "
             f"{s['vcpu']:.0f} vCPU, {s['ram_gib']:.0f} GiB RAM, {s['disk_eff_tib']:.1f} TiB de datos "
@@ -301,6 +315,25 @@ class Plan:
             f"Necesidades (con crecimiento): {self.req.cores:.0f} cores físicos, {self.req.ram_need_gib:.0f} GiB de RAM, "
             f"{self.req.data_gib/1024:.1f} TiB útiles.",
         ]
+        self._target_lines(s, lines)
+        if self.migrate:
+            lines.append(f"Migración: {s['metodo']} en {s['olas']} olas"
+                         + (f" (~{s['semanas']} semanas)" if s.get("semanas") else "") + ".")
+        else:
+            lines.append("Sin migración: solo se documenta la nueva plataforma (la carga del inventario se usa para dimensionar).")
+        lines.append(f"Riesgos: {s['bloqueos']} bloqueos, {s['avisos']} avisos (ver hoja/apartado de riesgos).")
+        return "\n".join(lines)
+
+    def _text_summary_no_load(self, s) -> str:
+        lines = ["Sin VMs/CTs en el alcance: documentación de la nueva plataforma, sin plan de migración."]
+        if s["hosts_origen"]:
+            lines.append(f"Inventario cargado: {s['hosts_origen']} servidores en {s['clusters_origen']} clúster(es), sin VMs/CTs.")
+        self._target_lines(s, lines, with_load=False)
+        if s["avisos"] or s["bloqueos"]:
+            lines.append(f"Puntos a revisar: {s['bloqueos']} bloqueos, {s['avisos']} avisos.")
+        return "\n".join(lines)
+
+    def _target_lines(self, s, lines, with_load=True):
         if self.options:
             for o in self.options:
                 n = o["nodos"][0]
@@ -309,14 +342,11 @@ class Plan:
                              + f"  ({o['eval']['sockets']} sockets)")
         lines.append(f"Destino: {s['nodos']} nodos, {s['cores']} cores, {s['ram_dest_gib']} GiB RAM, "
                      f"{s['util_tib']:.1f} TiB útiles ({s['almacenamiento']}), Proxmox VE {s['pve']}.")
-        lines.append(f"Ocupación: CPU {s['cpu_pct']:.0f} % ({s['cpu_pct_n1']:.0f} % con N-{self.sc['capacidad']['n_mas']}), "
-                     f"RAM {s['ram_pct']:.0f} % ({s['ram_pct_n1']:.0f} % con N-{self.sc['capacidad']['n_mas']}).")
-        lines.append("Capacidad: " + ("OK" if s["ok"] else "INSUFICIENTE → " + "; ".join(self.eval["problemas"])))
+        if with_load:
+            lines.append(f"Ocupación: CPU {s['cpu_pct']:.0f} % ({s['cpu_pct_n1']:.0f} % con N-{self.sc['capacidad']['n_mas']}), "
+                         f"RAM {s['ram_pct']:.0f} % ({s['ram_pct_n1']:.0f} % con N-{self.sc['capacidad']['n_mas']}).")
+            lines.append("Capacidad: " + ("OK" if s["ok"] else "INSUFICIENTE → " + "; ".join(self.eval["problemas"])))
         if self.pbs:
             p = self.pbs
-            lines.append(f"PBS {s['pbs_ver']}: {p['util_necesario_gib']/1024:.1f} TiB útiles · {p['propuesta']['cores']} cores · "
-                         f"{p['propuesta']['ram_gib']} GiB RAM · {p['propuesta']['discos']}")
-        lines.append(f"Migración: {s['metodo']} en {s['olas']} olas"
-                     + (f" (~{s['semanas']} semanas)" if s.get("semanas") else "") + ".")
-        lines.append(f"Riesgos: {s['bloqueos']} bloqueos, {s['avisos']} avisos (ver hoja/apartado de riesgos).")
-        return "\n".join(lines)
+            lines.append(f"PBS {s['pbs_ver']}: " + (f"{p['util_necesario_gib']/1024:.1f} TiB útiles · " if with_load else "")
+                         + f"{p['propuesta']['cores']} cores · {p['propuesta']['ram_gib']} GiB RAM · {p['propuesta']['discos']}")

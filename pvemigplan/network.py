@@ -205,7 +205,7 @@ class NetworkModel:
         if self.plan.pbs:
             out.append({"red": "Backup (PBS)", "vlan": "", "puertos": "en bond1", "interfaz": "bond1.<vlan>", "modo": "-", "mtu": mtu,
                         "gbps": speed.get("vms", g), "enlace": "bond1", "nota": "Tráfico hacia el Proxmox Backup Server."})
-        out.append({"red": "Payload (VMs)", "vlan": ", ".join(map(str, vlans)) or "según inventario", "puertos": f"2× {_fmt_g(speed.get('vms', g))} GbE",
+        out.append({"red": "Payload (VMs)", "vlan": ", ".join(map(str, vlans)) or ("según inventario" if getattr(self.plan, "has_load", True) else "por definir"), "puertos": f"2× {_fmt_g(speed.get('vms', g))} GbE",
                     "interfaz": "bond1 → vmbr1 (VLAN aware)", "modo": "802.3ad (LACP) layer3+4", "mtu": 1500,
                     "gbps": speed.get("vms", g), "enlace": "bond1",
                     "nota": "VLANs de las VMs (mismas que en origen). Recomendado: SDN zona VLAN con una VNet por VLAN."})
