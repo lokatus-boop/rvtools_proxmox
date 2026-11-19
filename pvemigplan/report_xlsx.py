@@ -142,7 +142,7 @@ def wave_rows(plan):
                          "Tipo": g.kind, "Datos (GiB)": round(g.disk_effective_gib, 1),
                          "Método": ("pct" if g.kind == "CT" else "qm") + " remote-migrate" if plan.method["id"] == "remote-migrate"
                          else _("Backup PBS + restore"), "Nodo destino": plan.placement.get(g.key),
-                         "Bridge/VLAN destino": ", ".join(f"vmbr1 VLAN {v}" if v else f"{b} (revisar)" for b, v in g.nics)})
+                         "Bridge/VLAN destino": ", ".join(f"vmbr1 VLAN {v}" if v else _("{b} (revisar)", b=b) for b, v in g.nics)})
     return rows
 
 

@@ -39,7 +39,7 @@ def kpi_state(a, folder):
     left = 0
     total = sum(v for _, v in items)
     for k, v in items:
-        ax.barh([0], [v], left=left, color=colors[k], height=0.5, label=f"{k}: {v}", edgecolor=SURFACE, linewidth=1.5)
+        ax.barh([0], [v], left=left, color=colors[k], height=0.5, label=f"{_(k)}: {v}", edgecolor=SURFACE, linewidth=1.5)
         if v / total > 0.06:
             ax.text(left + v / 2, 0, str(v), ha="center", va="center", fontsize=8, color="white" if colors[k] in (C1, C3) else INK2)
         left += v
@@ -119,7 +119,7 @@ def vms_per_node(a, folder):
     on = [r["Encendidas"] for r in rows]
     off = [r["VMs/CTs"] - r["Encendidas"] for r in rows]
     fig, ax = plt.subplots(figsize=(7, max(2.0, 0.4 * len(rows) + 1)))
-    ax.barh(labels, on, color=C1, height=0.6, label="Encendidas")
+    ax.barh(labels, on, color=C1, height=0.6, label=_("Encendidas"))
     ax.barh(labels, off, left=on, color=SEQ_LIGHT, height=0.6, label=_("Apagadas"), edgecolor=SURFACE, linewidth=1.5)
     for i, r in enumerate(rows):
         ax.text(on[i] + off[i], i, f"  {r['VMs/CTs']}", va="center", fontsize=8, color=INK2)

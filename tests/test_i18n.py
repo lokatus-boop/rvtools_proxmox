@@ -145,3 +145,48 @@ def test_gui_table_headers_translated():
                 if isinstance(e, ast.Constant) and e.value not in C and e.value not in A:
                     missing.append(e.value)
     assert not missing, missing
+
+
+def test_no_untranslated_widget_literals():
+    """Ningún texto de la interfaz ni de los gráficos se escribe sin pasar por _() (p. ej. text="Modo")."""
+    import ast
+    import glob
+    import os
+    import re
+    root = os.path.join(os.path.dirname(__file__), "..")
+    files = glob.glob(os.path.join(root, "pvetools", "*.py")) + glob.glob(os.path.join(root, "pvemigplan", "*.py"))
+    keys = {"text", "label", "title"}
+    bad = []
+    for f in files:
+        if "tr_catalog" in f:
+            continue
+        for node in ast.walk(ast.parse(open(f, encoding="utf-8").read())):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = ast.unparse(node.func)
+            args = [k.value for k in node.keywords if k.arg in keys]
+            if re.search(r"\.(set_title|set_xlabel|set_ylabel|suptitle)$", fn):
+                args += node.args[:1]
+            for a in args:
+                lit = "".join(v.value for v in a.values if isinstance(v, ast.Constant)) if isinstance(a, ast.JoinedStr) else ""
+                if re.search(r"[a-záéíóúñ]{3}", lit) or (isinstance(a, ast.Constant) and isinstance(a.value, str)
+                                                    and re.search(r"[a-záéíóúñ]{3}", a.value) and a.value not in ("TiB", "GiB")):
+                    bad.append(f"{os.path.basename(f)}:{node.lineno} {ast.unparse(a)[:60]}")
+    assert not bad, bad
+
+
+def test_no_translation_at_import_time():
+    """_() en valores por defecto o a nivel de módulo se evalúa al importar y deja el texto en el idioma de arranque."""
+    import ast
+    import glob
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..")
+    bad = []
+    for f in glob.glob(os.path.join(root, "pvetools", "*.py")) + glob.glob(os.path.join(root, "pvemigplan", "*.py")):
+        tree = ast.parse(open(f, encoding="utf-8").read())
+        nodes = [n for n in tree.body if isinstance(n, (ast.Assign, ast.AnnAssign))]
+        nodes += [d for n in ast.walk(tree) if isinstance(n, ast.arguments) for d in n.defaults + n.kw_defaults if d]
+        for n in nodes:
+            if any(isinstance(c, ast.Call) and ast.unparse(c.func) in ("_", "tr") for c in ast.walk(n)):
+                bad.append(f"{os.path.basename(f)}:{n.lineno}")
+    assert not bad, bad

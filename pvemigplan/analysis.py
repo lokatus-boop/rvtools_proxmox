@@ -342,7 +342,7 @@ class Analysis:
         zones = [{**cl(z), "Zona": z["zone"], "Tipo": z["type"], "Red / underlay": sdn_zone_detail(z),
                   "Nodos": z["nodes"] or _("todos"), "MTU": z["mtu"] or "auto",
                   "IPAM / DNS": " · ".join(x for x in (z["ipam"] and f"IPAM {z['ipam']}", z["dns"] and f"DNS {z['dns']}",
-                                                       z["dnszone"] and f"zona {z['dnszone']}", z["dhcp"] and f"DHCP {z['dhcp']}") if x),
+                                                       z["dnszone"] and _("zona {z}", z=z["dnszone"]), z["dhcp"] and f"DHCP {z['dhcp']}") if x),
                   "VNets": len(z["vnets"]), "Pendiente de aplicar": "Sí" if z["pending"] else ""} for z in s["zones"]]
         vnets = []
         for v in s["vnets"]:

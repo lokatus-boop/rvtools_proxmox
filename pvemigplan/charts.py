@@ -53,7 +53,9 @@ def _hbar_labels(ax, bars, fmt="{:.0f}", pad=0.01):
 
 
 # ------------------------------------------------------------------ situación actual
-def source_hosts(plan, folder, suffix=_(" de origen")):
+def source_hosts(plan, folder, suffix=None):
+    # el valor por defecto se traduce al llamar, no al importar el módulo
+    suffix = _(" de origen") if suffix is None else suffix
     hs = plan.an.hosts
     if not hs:
         return None
@@ -68,14 +70,14 @@ def source_hosts(plan, folder, suffix=_(" de origen")):
     y = range(len(hs))
     h = 0.36
     a1.barh([i - h / 2 for i in y], [x.threads for x in hs], height=h, color=SEQ_LIGHT, label=_("Hilos físicos"))
-    b = a1.barh([i + h / 2 for i in y], [by_node.get((x.cluster, x.node), [0, 0])[0] for x in hs], height=h, color=C1, label="vCPU asignadas (encendidas)")
+    b = a1.barh([i + h / 2 for i in y], [by_node.get((x.cluster, x.node), [0, 0])[0] for x in hs], height=h, color=C1, label=_("vCPU asignadas (encendidas)"))
     a1.set_yticks(list(y), labels)
     a1.invert_yaxis()
-    a1.set_title(f"CPU por nodo{suffix}")
+    a1.set_title(_("CPU por nodo{suffix}", suffix=suffix))
     _hbar_labels(a1, b)
     _legend_below(a1, ncol=2)
-    a2.barh([i - h / 2 for i in y], [x.ram_gib for x in hs], height=h, color=SEQ_LIGHT, label="RAM física (GiB)")
-    b = a2.barh([i + h / 2 for i in y], [x.ram_used_gib for x in hs], height=h, color=C1, label="RAM usada (GiB)")
+    a2.barh([i - h / 2 for i in y], [x.ram_gib for x in hs], height=h, color=SEQ_LIGHT, label=_("RAM física (GiB)"))
+    b = a2.barh([i + h / 2 for i in y], [x.ram_used_gib for x in hs], height=h, color=C1, label=_("RAM usada (GiB)"))
     a2.set_yticks(list(y), [""] * len(hs))
     a2.invert_yaxis()
     a2.set_title(_("Memoria por nodo{suffix}", suffix=suffix))
@@ -115,7 +117,8 @@ def vm_sizes(plan, folder):
     return _save(fig, folder, "origen_tamanos.png")
 
 
-def source_storage(plan, folder, title=_("Almacenamientos de origen")):
+def source_storage(plan, folder, title=None):
+    title = _("Almacenamientos de origen") if title is None else title
     rows = [r for r in plan.an.storage_usage() if r["Total (GiB)"]]
     rows.sort(key=lambda r: r["Total (GiB)"], reverse=True)
     rows = rows[:14]
@@ -205,7 +208,7 @@ def waves_gantt(plan, folder):
     ax.set_title(_("Calendario de olas de migración"))
     ax.grid(axis="y", visible=False)
     handles = [plt.Rectangle((0, 0), 1, 1, color=c) for k, c in color.items() if any(w["tipo"] == k for w in ws)]
-    _legend_below(ax, handles, [k for k in color if any(w["tipo"] == k for w in ws)], ncol=4)
+    _legend_below(ax, handles, [_(k) for k in color if any(w["tipo"] == k for w in ws)], ncol=4)
     return _save(fig, folder, "migracion_olas.png")
 
 
@@ -240,7 +243,7 @@ def risks(plan, folder):
     left = [0] * len(cats)
     for sev, col in (("BLOQUEO", CRIT), ("AVISO", WARN), ("INFO", SEQ_LIGHT)):
         vals = [c.get((k, sev), 0) for k in cats]
-        ax.barh(cats, vals, left=left, color=col, height=0.6, label=sev.capitalize(), edgecolor=SURFACE, linewidth=1.5)
+        ax.barh(cats, vals, left=left, color=col, height=0.6, label=_(sev).capitalize(), edgecolor=SURFACE, linewidth=1.5)
         left = [a + b for a, b in zip(left, vals)]
     for i, v in enumerate(left):
         ax.text(v, i, f"  {v}", va="center", fontsize=8, color=INK2)

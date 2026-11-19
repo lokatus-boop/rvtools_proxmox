@@ -95,8 +95,8 @@ class NetworkModel:
             links.append({"uso": "bmc", "gbps": 1, "a": 1, "b": 0, "fa": "oob", "fb": None})
             eps.append({"id": f"grp{len(eps)}", "tipo": "servidor", "titulo": _("Clúster Proxmox VE"),
                         "detalle": f"{cnt} × {spec.model}", "modelo": spec.model, "count": cnt, "links": links,
-                        "nota": {"ceph": "Ceph: almacenamiento distribuido por Ethernet", "zfs": "ZFS local + replicación",
-                                 "san": f"Cabina SAN · {self.proto} multipath", "nfs": "NAS NFS"}.get(self.typ, "")})
+                        "nota": {"ceph": _("Ceph: almacenamiento distribuido por Ethernet"), "zfs": _("ZFS local + replicación"),
+                                 "san": _("Cabina SAN · {proto} multipath", proto=self.proto), "nfs": "NAS NFS"}.get(self.typ, "")})
         if self.plan.pbs:
             g = max(self.sc["red"]["velocidad_gbps"], 10)
             mdl = self.sc["pbs"]["hardware"].get("modelo") if self.sc["pbs"]["hardware"].get("definido") else _("Servidor PBS")
@@ -258,7 +258,7 @@ class NetworkModel:
         for ep in self.endpoints:
             for k in range(ep["count"]):
                 if ep["id"].startswith("grp"):
-                    host = next(node_names, f"nodo{k + 1}")
+                    host = next(node_names, _("nodo{n}", n=k + 1))
                 elif ep["id"] == "ext":
                     host = ep["detalle"]
                 else:

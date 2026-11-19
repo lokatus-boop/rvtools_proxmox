@@ -48,7 +48,7 @@ class Ctx:
         self.zpool = str(zp[0].get("Pool")) if zp else "rpool"
         vms = [r for r in sheets.get("vInfo", []) if r.get("Tipo") == "VM" and str(r.get("Plantilla")).lower() not in ("sí", "si", "true", "1")]
         self.vmid = str(vms[0].get("VMID")) if vms else "100"
-        self.store = self.zfs or self.rbd or "<almacenamiento>"
+        self.store = self.zfs or self.rbd or _("<almacenamiento>")
         self.backup_store = self.pbs or _("<almacén-backup>")
         self.has_ceph = bool(self.rbd or pools)
         self.qdevice_useful = self.n_nodes == 2 or (self.n_nodes and self.n_nodes % 2 == 0)

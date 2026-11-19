@@ -367,7 +367,7 @@ class Inventory:
         })
         out["vCPU"].append({
             **key, "Estado": g.get("status"), "Sockets": sockets, "Cores": cores, "vCPU": vcpus,
-            "Tipo CPU": (cfg.get("cpu") or "por defecto (kvm64)") if kind == "qemu" else None,
+            "Tipo CPU": (cfg.get("cpu") or D("por defecto (kvm64)")) if kind == "qemu" else None,
             "Límite CPU": cfg.get("cpulimit"), "CPU units": cfg.get("cpuunits"), "Afinidad": cfg.get("affinity"),
             "NUMA": flag(cfg.get("numa")) if kind == "qemu" else None,
             "Uso CPU (%)": round(float(g.get("cpu") or 0) * 100, 1) if running else None,

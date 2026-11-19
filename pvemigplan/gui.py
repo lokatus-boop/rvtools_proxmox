@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, DISCLAIMER_TITLE, DISCLAIMER_VERSION, SHORT_NOTICE, asset_path
 from .loader import InventoryError, format_warnings, load
+from .network import USO_LABEL
 from .project import EXT as PROJECT_EXT, ProjectError, empty_sheets, load as load_project, save as save_project
 from .scenario import PVE_VERSIONS, STORAGE_TYPES, load as load_scenario, new, save as save_scenario
 from pvetools.i18n import LANGS, N_, _, data_out, detect, get_lang, set_lang
@@ -296,7 +297,7 @@ class App(tk.Tk):
         self._var(("proyecto",), str, top, 0, 2, _("Título del documento"), 40)
         self._var(("autor",), str, top, 0, 4, _("Preparado por"), 24)
 
-        mode = ttk.LabelFrame(t, text="Modo")
+        mode = ttk.LabelFrame(t, text=_("Modo"))
         mode.pack(fill="x", pady=6)
         self.v_mode = tk.StringVar(value="aconsejar")
         ttk.Radiobutton(mode, text=_("Aconsejar hardware (destino desconocido)"), value="aconsejar", variable=self.v_mode,
@@ -412,7 +413,7 @@ class App(tk.Tk):
         self.nb.add(t, text=_("5 · Migración"))
         f = ttk.LabelFrame(t, text=_("Método y olas"))
         f.pack(fill="x")
-        ttk.Label(f, text="Método").grid(row=0, column=0, sticky="w", padx=4)
+        ttk.Label(f, text=_("Método")).grid(row=0, column=0, sticky="w", padx=4)
         self.v_method = tk.StringVar()
         ttk.Combobox(f, textvariable=self.v_method, values=[_(x) for x in METHODS.values()], state="readonly", width=52).grid(row=0, column=1, columnspan=3, sticky="w", padx=4)
         for i, (path, lbl, typ) in enumerate(MIG_FIELDS):
@@ -735,7 +736,7 @@ class App(tk.Tk):
             self.srv_tree.insert("", "end", iid=str(i), values=(
                 s.get("cantidad"), s.get("modelo"), s.get("cpu"), int(s.get("sockets", 0)) * int(s.get("cores_por_socket", 0)),
                 s.get("ram_gib"), ", ".join(f"{d['cantidad']}× {d['tb']} TB {d.get('tipo', '')}" for d in data) or "-",
-                ", ".join(f"{n['puertos']}×{n['gbps']:g}G {n.get('uso', '')}" for n in s.get("nics", []))))
+                ", ".join(f"{n['puertos']}×{n['gbps']:g}G {_(USO_LABEL.get(n.get('uso', ''), n.get('uso', '')))}" for n in s.get("nics", []))))
 
     def _add_server(self):
         d = ServerDialog(self)
