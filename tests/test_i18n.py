@@ -116,3 +116,32 @@ def test_cli_lang(lang, word):
         r = subprocess.run([sys.executable, os.path.join(ROOT, script), "--lang", lang, "--help"],
                            capture_output=True, text=True, env={**os.environ, "PVE_LANG": "es"})
         assert r.returncode == 0 and word in r.stdout, (script, r.stdout[:200], r.stderr[-500:])
+
+
+def test_placeholder_named_lang():
+    """Un marcador {lang} no debe chocar con el parámetro de idioma de tr() (fallo al cambiar de idioma en la GUI)."""
+    from pvetools.i18n import LANGS, _, set_lang
+    msg = "Idioma: {lang}. Los documentos se generarán en este idioma."
+    for code, name in LANGS.items():
+        set_lang(code)
+        out = _(msg, lang=name)
+        assert name in out
+        if code != "es":
+            assert out != msg.format(lang=name)
+    set_lang("es")
+
+
+def test_gui_table_headers_translated():
+    """Las cabeceras de las tablas de la GUI del planificador que se traducen con _(c) están en el catálogo."""
+    import ast
+    import os
+    from pvemigplan.tr_catalog import CATALOG as C
+    from pvetools.tr_catalog import CATALOG as A
+    src = open(os.path.join(os.path.dirname(__file__), "..", "pvemigplan", "gui.py"), encoding="utf-8").read()
+    missing = []
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "cols" for t in node.targets):
+            for e in getattr(node.value, "elts", []):
+                if isinstance(e, ast.Constant) and e.value not in C and e.value not in A:
+                    missing.append(e.value)
+    assert not missing, missing

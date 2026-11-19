@@ -264,8 +264,11 @@ class App(tk.Tk):
         ttk.Button(bar, text=_("Solo análisis (informe sin migración)…"), command=self._goto_analysis).pack(side="right")
         self.v_stopped = tk.BooleanVar(value=True)
         self.v_templates = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text=_("Incluir VMs apagadas"), variable=self.v_stopped, command=self._refresh_inventory).pack(side="left", padx=(20, 4))
-        ttk.Checkbutton(bar, text=_("Incluir plantillas"), variable=self.v_templates, command=self._refresh_inventory).pack(side="left")
+        # Opciones en una segunda fila: en alemán o francés los textos no caben junto a los botones.
+        opts = ttk.Frame(t)
+        opts.pack(fill="x", pady=(4, 0))
+        ttk.Checkbutton(opts, text=_("Incluir VMs apagadas"), variable=self.v_stopped, command=self._refresh_inventory).pack(side="left", padx=(0, 12))
+        ttk.Checkbutton(opts, text=_("Incluir plantillas"), variable=self.v_templates, command=self._refresh_inventory).pack(side="left")
         self.files_lbl = ttk.Label(t, text=_("Sin inventario cargado."), foreground="#555")
         self.files_lbl.pack(fill="x", pady=4)
         self.inv_summary = tk.Text(t, height=6, wrap="word", relief="flat", background="#f7f7f7")

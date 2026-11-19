@@ -113,6 +113,12 @@ def language(code):
 
 # --------------------------------------------------------------------------- traducción
 def tr(msg, lang=None, **kw):
+    return _tr(msg, lang, kw)
+
+
+def _tr(msg, lang, kw):
+    # Los argumentos de formato van en un dict aparte para que un marcador llamado
+    # {lang} (p. ej. «Idioma: {lang}») no choque con el parámetro de idioma.
     lang = lang or _lang
     text = msg
     if lang != DEFAULT and isinstance(msg, str):
@@ -128,7 +134,7 @@ def tr(msg, lang=None, **kw):
 
 
 def _(msg, **kw):
-    return tr(msg, **kw)
+    return _tr(msg, None, kw)
 
 
 def N_(msg):
