@@ -7,6 +7,7 @@ import time
 from collections import defaultdict
 
 from .api import q
+from .i18n import D
 
 EXTRA_SHEETS = ["vBond", "vBridge", "vHostVLAN", "vSDN", "vSDNObj", "vCorosync", "vFirewall", "vFirewallObj",
                 "vUsers", "vACL", "vCephOSD", "vCephPool", "vPhysicalDisk", "vZFS", "vPassthrough",
@@ -24,7 +25,7 @@ def _b2gib(b):
 
 
 def _flag(v):
-    return "Sí" if str(v) in ("1", "True", "true", "yes", "on") else "No"
+    return D("Sí") if str(v) in ("1", "True", "true", "yes", "on") else D("No")
 
 
 def _ts(epoch):
@@ -81,7 +82,7 @@ def network(inv, label, node, ifaces):
             })
 
 
-SDN_STATE = {"new": "Sí (nuevo)", "changed": "Sí (modificado)", "deleted": "Sí (borrado)"}
+SDN_STATE = {"new": D("Sí (nuevo)"), "changed": D("Sí (modificado)"), "deleted": D("Sí (borrado)")}
 
 
 def _join(v):
@@ -148,7 +149,7 @@ def sdn(inv, api, label):
             inv.sheets["vSDN"].append({"Clúster": label, "Zona": name, "Tipo zona": z.get("type"),
                                        "Bridge zona": z.get("bridge") if z.get("type") in ("vlan", "qinq") else None,
                                        "Nodos zona": _join(z.get("nodes")), "MTU": z.get("mtu"), "IPAM": z.get("ipam"),
-                                       "VNet": "(sin VNets)", "Pendiente de aplicar": _pending(zstate.get(name)), **zone_cols(z)})
+                                       "VNet": D("(sin VNets)"), "Pendiente de aplicar": _pending(zstate.get(name)), **zone_cols(z)})
     _sdn_objects(inv, api, label)
 
 
@@ -168,7 +169,7 @@ def _sdn_objects(inv, api, label):
                   "isis-ifaces", "fabric"):
             if c.get(k) not in (None, ""):
                 det.append(f"{k}={_join(c[k])}")
-        add("Controlador", c.get("controller"), c.get("type"), cstate.get(c.get("controller")), Nodo=c.get("node"),
+        add(D("Controlador"), c.get("controller"), c.get("type"), cstate.get(c.get("controller")), Nodo=c.get("node"),
             ASN=c.get("asn"), Peers=c.get("peers"), Detalles="; ".join(det) or None)
     istate = _sdn_states(api, "cluster/sdn/ipams", "ipam")
     for i in sorted(api.try_get("cluster/sdn/ipams", []) or [], key=lambda x: str(x.get("ipam"))):
@@ -193,7 +194,7 @@ def _sdn_objects(inv, api, label):
             continue
         ifs = n.get("interfaces") or []
         ifs = [i.get("name") if isinstance(i, dict) else str(i).split(",")[0].replace("name=", "") for i in ifs]
-        add("Nodo de fabric", n.get("fabric_id"), n.get("protocol"), n.get("state"), Nodo=n.get("node_id"),
+        add(D("Nodo de fabric"), n.get("fabric_id"), n.get("protocol"), n.get("state"), Nodo=n.get("node_id"),
             Peers=", ".join(x for x in (n.get("ip"), n.get("ip6")) if x) or None,
             Detalles=("interfaces=" + ", ".join(i for i in ifs if i)) if ifs else None)
 
@@ -232,7 +233,7 @@ def firewall(inv, api, label, nodes):
     for g in api.try_get("cluster/firewall/groups", []) or []:
         inv.sheets["vFirewallObj"].append({"Clúster": label, "Tipo": "Security group", "Nombre": g.get("group"),
                                            "Valor": None, "Comentario": g.get("comment")})
-        rules(f"Grupo {g.get('group')}", f"cluster/firewall/groups/{q(g.get('group'))}")
+        rules(D("Grupo {group}", group=g.get("group")), f"cluster/firewall/groups/{q(g.get('group'))}")
     for a in api.try_get("cluster/firewall/aliases", []) or []:
         inv.sheets["vFirewallObj"].append({"Clúster": label, "Tipo": "Alias", "Nombre": a.get("name"),
                                            "Valor": a.get("cidr"), "Comentario": a.get("comment")})
@@ -244,14 +245,14 @@ def firewall(inv, api, label, nodes):
             "Comentario": s.get("comment")})
     for n in nodes:
         if n.get("status") == "online":
-            rules(f"Nodo {n.get('node')}", f"nodes/{q(n.get('node'))}/firewall/rules")
+            rules(D("Nodo {node}", node=n.get("node")), f"nodes/{q(n.get('node'))}/firewall/rules")
 
 
 def access(inv, api, label):
     for u in sorted(api.try_get("access/users", [], full=1) or [], key=lambda x: x.get("userid", "")):
         inv.sheets["vUsers"].append({
-            "Clúster": label, "Tipo": "Usuario", "ID": u.get("userid"), "Habilitado": _flag(u.get("enable", 1)),
-            "Caduca": _ts(u.get("expire")) if u.get("expire") else "Nunca", "Nombre": " ".join(
+            "Clúster": label, "Tipo": D("Usuario"), "ID": u.get("userid"), "Habilitado": _flag(u.get("enable", 1)),
+            "Caduca": _ts(u.get("expire")) if u.get("expire") else D("Nunca"), "Nombre": " ".join(
                 x for x in (u.get("firstname"), u.get("lastname")) if x) or None,
             "Email": u.get("email"), "Grupos": u.get("groups") if isinstance(u.get("groups"), str) else ", ".join(u.get("groups") or []) or None,
             "Realm": u.get("realm-type"), "Privilegios separados": None, "Comentario": u.get("comment"),
@@ -259,13 +260,13 @@ def access(inv, api, label):
         for t in u.get("tokens") or []:
             inv.sheets["vUsers"].append({
                 "Clúster": label, "Tipo": "API token", "ID": f"{u.get('userid')}!{t.get('tokenid')}",
-                "Habilitado": "Sí", "Caduca": _ts(t.get("expire")) if t.get("expire") else "Nunca",
+                "Habilitado": D("Sí"), "Caduca": _ts(t.get("expire")) if t.get("expire") else D("Nunca"),
                 "Realm": u.get("realm-type"), "Privilegios separados": _flag(t.get("privsep", 1)),
                 "Comentario": t.get("comment"),
             })
     for a in sorted(api.try_get("access/acl", []) or [], key=lambda x: (x.get("path", ""), x.get("ugid", ""))):
         inv.sheets["vACL"].append({
-            "Clúster": label, "Ruta": a.get("path"), "Tipo": {"user": "Usuario", "group": "Grupo", "token": "Token"}.get(a.get("type"), a.get("type")),
+            "Clúster": label, "Ruta": a.get("path"), "Tipo": {"user": D("Usuario"), "group": D("Grupo"), "token": D("Token")}.get(a.get("type"), a.get("type")),
             "Usuario / grupo": a.get("ugid"), "Rol": a.get("roleid"), "Propagar": _flag(a.get("propagate", 1)),
         })
 
@@ -290,7 +291,7 @@ def ceph(inv, api, label, nodes):
         if n.get("type") == "osd":
             inv.sheets["vCephOSD"].append({
                 "Clúster": label, "Host": n.get("host") or host, "OSD": n.get("name"), "Estado": n.get("status"),
-                "In": "Sí" if str(n.get("in", 1)) == "1" else "No", "Clase": n.get("device_class"),
+                "In": D("Sí") if str(n.get("in", 1)) == "1" else D("No"), "Clase": n.get("device_class"),
                 "Tipo": n.get("osdtype"), "Peso CRUSH": n.get("crush_weight"),
                 "Tamaño (GiB)": _b2gib(n.get("total_space")), "Usado (GiB)": _b2gib(n.get("bytes_used")),
                 "Uso (%)": round(float(n["percent_used"]), 1) if n.get("percent_used") is not None else None,
@@ -337,7 +338,7 @@ def node_maintenance(inv, api, label, node, host_row):
         status = r.get("status")
         inv.sheets["vRepo"].append({
             "Clúster": label, "Nodo": node, "Repositorio": r.get("name"), "Handle": r.get("handle"),
-            "Estado": "Habilitado" if status == 1 else ("Deshabilitado" if status == 0 else "No configurado"),
+            "Estado": D("Habilitado") if status == 1 else (D("Deshabilitado") if status == 0 else D("No configurado")),
         })
     updates = api.try_get(f"nodes/{q(node)}/apt/update")
     if host_row is not None:
@@ -410,35 +411,40 @@ def health(inv, add):
             add(sev, label, "Ceph", f"{c['status']}: " + "; ".join(f"{k}: {v}" for k, v in c["checks"].items())[:400])
     for o in inv.sheets["vCephOSD"]:
         if o["Estado"] != "up" or o["In"] == "No":
-            add("CRÍTICO", o["Clúster"], f"Ceph {o['OSD']} ({o['Host']})", f"OSD {o['Estado']}, in={o['In']}")
+            add("CRÍTICO", o["Clúster"], f"Ceph {o['OSD']} ({o['Host']})", D("OSD {state}, in={inn}", state=o["Estado"], inn=o["In"]))
         elif (o["Uso (%)"] or 0) >= 80:
-            add("AVISO", o["Clúster"], f"Ceph {o['OSD']} ({o['Host']})", f"OSD al {o['Uso (%)']}%")
+            add("AVISO", o["Clúster"], f"Ceph {o['OSD']} ({o['Host']})", D("OSD al {pct}%", pct=o["Uso (%)"]))
     for d in inv.sheets["vPhysicalDisk"]:
-        obj = f"Disco {d['Dispositivo']} ({d['Nodo']})"
+        obj = D("Disco {dev} ({node})", dev=d["Dispositivo"], node=d["Nodo"])
         if d["SMART"] and str(d["SMART"]).upper() not in ("PASSED", "OK", "UNKNOWN"):
             add("CRÍTICO", d["Clúster"], obj, f"SMART: {d['SMART']} ({d['Modelo']})")
         try:
             if d["Desgaste (%)"] is not None and float(d["Desgaste (%)"]) >= 80:
-                add("AVISO", d["Clúster"], obj, f"Desgaste del SSD al {d['Desgaste (%)']}%")
+                add("AVISO", d["Clúster"], obj, D("Desgaste del SSD al {pct}%", pct=d["Desgaste (%)"]))
         except (TypeError, ValueError):
             pass
     for z in inv.sheets["vZFS"]:
         obj = f"ZFS {z['Pool']} ({z['Nodo']})"
         if z["Estado"] and z["Estado"] != "ONLINE":
-            add("CRÍTICO", z["Clúster"], obj, f"Pool en estado {z['Estado']}")
+            add("CRÍTICO", z["Clúster"], obj, D("Pool en estado {state}", state=z["Estado"]))
         if (z["Uso (%)"] or 0) >= 80:
-            add("AVISO", z["Clúster"], obj, f"Pool ocupado al {z['Uso (%)']}% (ZFS se degrada por encima del 80%)")
+            add("AVISO", z["Clúster"], obj, D("Pool ocupado al {pct}% (ZFS se degrada por encima del 80%)", pct=z["Uso (%)"]))
     pend = defaultdict(list)
     for r in inv.sheets["vSDN"]:
         if str(r.get("Pendiente de aplicar") or "No").startswith("Sí"):
-            pend[r["Clúster"]].append(f"VNet {r['VNet']}" if r.get("VNet") and not str(r["VNet"]).startswith("(") else f"zona {r['Zona']}")
+            pend[r["Clúster"]].append(f"VNet {r['VNet']}" if r.get("VNet") and not str(r["VNet"]).startswith("(") else D("zona {zone}", zone=r["Zona"]))
     for r in inv.sheets["vSDNObj"]:
         if str(r.get("Pendiente de aplicar") or "No").startswith("Sí"):
             pend[r["Clúster"]].append(f"{r['Objeto']} {r['Nombre']}")
     for label, objs in pend.items():
         objs = sorted(set(objs))
-        add("AVISO", label, "SDN", f"Cambios de SDN pendientes de aplicar ({', '.join(objs[:8])}"
-            + (f" y {len(objs) - 8} más" if len(objs) > 8 else "") + "): la configuración activa no coincide con la guardada")
+        if len(objs) > 8:
+            msg = D("Cambios de SDN pendientes de aplicar ({objs} y {more} más): la configuración activa no coincide con "
+                    "la guardada", objs=", ".join(objs[:8]), more=len(objs) - 8)
+        else:
+            msg = D("Cambios de SDN pendientes de aplicar ({objs}): la configuración activa no coincide con la guardada",
+                    objs=", ".join(objs))
+        add("AVISO", label, "SDN", msg)
     # NICs de VMs en redes que no son bridges de los nodos ni VNets del SDN: el usuario no puede leer el SDN
     known = defaultdict(set)
     for r in inv.sheets["vBridge"] + inv.sheets["vSDN"]:
@@ -448,56 +454,57 @@ def health(inv, add):
         if known.get(n["Clúster"]) and n.get("Bridge") and n["Bridge"] not in known[n["Clúster"]]:
             unknown[n["Clúster"]].add(n["Bridge"])
     for label, brs in unknown.items():
-        add("INFO", label, "SDN", f"Hay VMs/CTs conectadas a redes que no aparecen como bridge ni como VNet SDN "
-            f"({', '.join(sorted(brs)[:8])}): si son VNets, el usuario del inventario necesita el permiso SDN.Audit")
+        add("INFO", label, "SDN", D("Hay VMs/CTs conectadas a redes que no aparecen como bridge ni como VNet SDN "
+                                    "({nets}): si son VNets, el usuario del inventario necesita el permiso SDN.Audit",
+                                    nets=", ".join(sorted(brs)[:8])))
     for b in inv.sheets["vBond"]:
         if b["Nº esclavos"] == 1:
-            add("INFO", b["Clúster"], f"Bond {b['Bond']} ({b['Nodo']})", "Bond con una sola interfaz (sin redundancia)")
+            add("INFO", b["Clúster"], f"Bond {b['Bond']} ({b['Nodo']})", D("Bond con una sola interfaz (sin redundancia)"))
     by_cluster = defaultdict(list)
     for c in inv.sheets["vCorosync"]:
         by_cluster[c["Clúster"]].append(c)
     for label, rows in by_cluster.items():
         if all((r["Enlaces"] or 0) < 2 for r in rows):
-            add("AVISO", label, "Corosync", "Un solo enlace de corosync: sin red de clúster redundante")
+            add("AVISO", label, "Corosync", D("Un solo enlace de corosync: sin red de clúster redundante"))
     for label, opts in inv._dc_firewall.items():
         if str(opts.get("enable", 0)) != "1":
-            add("INFO", label, "Firewall", "Firewall de datacenter deshabilitado")
+            add("INFO", label, "Firewall", D("Firewall de datacenter deshabilitado"))
     for u in inv.sheets["vUsers"]:
         if u["Tipo"] == "API token" and u["Privilegios separados"] == "No":
-            add("INFO", u["Clúster"], f"Token {u['ID']}", "Token sin privilegios separados (hereda todos los permisos del usuario)")
+            add("INFO", u["Clúster"], f"Token {u['ID']}", D("Token sin privilegios separados (hereda todos los permisos del usuario)"))
     subs = {(h["Clúster"], h["Nodo"]): str(h.get("Suscripción") or "").lower() for h in inv.sheets["vHost"]}
     for r in inv.sheets["vRepo"]:
-        obj = f"Nodo {r['Nodo']}"
+        obj = D("Nodo {node}", node=r["Nodo"])
         if r["Estado"] == "Habilitado" and "enterprise" in str(r["Handle"]) and subs.get((r["Clúster"], r["Nodo"])) != "active":
-            add("AVISO", r["Clúster"], obj, f"Repositorio {r['Repositorio']} habilitado sin suscripción activa (las actualizaciones fallarán)")
+            add("AVISO", r["Clúster"], obj, D("Repositorio {repo} habilitado sin suscripción activa (las actualizaciones fallarán)", repo=r["Repositorio"]))
         if r["Estado"] == "Habilitado" and "test" in str(r["Handle"]):
-            add("AVISO", r["Clúster"], obj, f"Repositorio de pruebas habilitado: {r['Repositorio']}")
+            add("AVISO", r["Clúster"], obj, D("Repositorio de pruebas habilitado: {repo}", repo=r["Repositorio"]))
     for h in inv.sheets["vHost"]:
         if h.get("Actualizaciones pendientes"):
-            add("INFO", h["Clúster"], f"Nodo {h['Nodo']}", f"{h['Actualizaciones pendientes']} actualizaciones pendientes")
+            add("INFO", h["Clúster"], D("Nodo {node}", node=h["Nodo"]), D("{n} actualizaciones pendientes", n=h["Actualizaciones pendientes"]))
     for c in inv.sheets["vCert"]:
         d = c["Días restantes"]
         if d is None:
             continue
-        obj = f"Certificado {c['Fichero']} ({c['Nodo']})"
+        obj = D("Certificado {file} ({node})", file=c["Fichero"], node=c["Nodo"])
         if d < 0:
-            add("CRÍTICO", c["Clúster"], obj, f"Caducado el {c['Válido hasta']}")
+            add("CRÍTICO", c["Clúster"], obj, D("Caducado el {date}", date=c["Válido hasta"]))
         elif d < CERT_WARN_DAYS:
-            add("AVISO", c["Clúster"], obj, f"Caduca en {d} días")
+            add("AVISO", c["Clúster"], obj, D("Caduca en {days} días", days=d))
     for b in inv.sheets["vBackupStatus"]:
         obj = f"{b['Tipo']} {b['VMID']} {b['Nombre']}"
         if b["Nº copias"] == 0:
-            add("AVISO", b["Clúster"], obj, "Sin ninguna copia de backup en los almacenamientos")
+            add("AVISO", b["Clúster"], obj, D("Sin ninguna copia de backup en los almacenamientos"))
         elif (b["Antigüedad (días)"] or 0) > BACKUP_AGE_WARN_DAYS:
-            add("AVISO", b["Clúster"], obj, f"Último backup hace {b['Antigüedad (días)']} días")
+            add("AVISO", b["Clúster"], obj, D("Último backup hace {days} días", days=b["Antigüedad (días)"]))
         if b["Verificado"] == "failed":
-            add("CRÍTICO", b["Clúster"], obj, "La verificación del último backup ha fallado")
+            add("CRÍTICO", b["Clúster"], obj, D("La verificación del último backup ha fallado"))
     for p in inv.sheets["vPassthrough"]:
         if p["Tipo"] in ("PCI", "USB") and p["Mapeado"] == "No":
             add("INFO", p["Clúster"], f"{p['Tipo VM']} {p['VMID']} {p['Nombre']}",
-                f"{p['Tipo']} passthrough sin mapping ({p['Dispositivo']}): impide la migración en caliente")
+                D("{kind} passthrough sin mapping ({dev}): impide la migración en caliente", kind=p["Tipo"], dev=p["Dispositivo"]))
     failed = defaultdict(int)
     for t in inv.sheets["vTasks"]:
         failed[t["Clúster"]] += 1
     for label, n in failed.items():
-        add("INFO", label, "Tareas", f"{n} tareas con error o avisos en los últimos 7 días (ver vTasks)")
+        add("INFO", label, D("Tareas"), D("{n} tareas con error o avisos en los últimos 7 días (ver vTasks)", n=n))

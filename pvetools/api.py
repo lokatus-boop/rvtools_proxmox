@@ -8,6 +8,8 @@ import warnings
 
 import requests
 
+from .i18n import D, N_, _
+
 DEFAULT_PORT = 8006
 
 
@@ -15,8 +17,8 @@ class PVEError(Exception):
     pass
 
 
-TOKEN_HINT = ("Alternativa recomendada: un API token de solo lectura, que no pide segundo factor "
-              "(ver README, «usuario y API token de solo lectura»)")
+TOKEN_HINT = (N_("Alternativa recomendada: un API token de solo lectura, que no pide segundo factor "
+              "(ver README, «usuario y API token de solo lectura»)"))
 
 
 class PVETFAError(PVEError):
@@ -49,8 +51,8 @@ def tfa_response(code: str, methods: list[str]) -> str:
     return f"recovery:{code}"
 
 
-METHOD_NAMES = {"totp": "TOTP (app de autenticación)", "recovery": "código de recuperación",
-                "yubico": "Yubico OTP", "webauthn": "llave WebAuthn/FIDO", "u2f": "llave U2F"}
+METHOD_NAMES = {"totp": N_("TOTP (app de autenticación)"), "recovery": N_("código de recuperación"),
+                "yubico": "Yubico OTP", "webauthn": N_("llave WebAuthn/FIDO"), "u2f": N_("llave U2F")}
 
 
 class PVEClient:
@@ -71,7 +73,7 @@ class PVEClient:
         self.base = f"https://{self.host}:{self.port}/api2/json"
         self.user = user
         self.timeout = timeout
-        self.auth_method = "API token" if token_id else "Contraseña"
+        self.auth_method = "API token" if token_id else D("Contraseña")
         self.session = requests.Session()
         # Proxmox está en la red local: ignorar proxies del sistema/variables de entorno,
         # que en redes corporativas pueden interceptar o romper la conexión.
@@ -88,7 +90,7 @@ class PVEClient:
         elif password is not None:
             self._login(password, otp, tfa_callback)
         else:
-            raise PVEError("Falta contraseña o API token")
+            raise PVEError(_("Falta contraseña o API token"))
 
     @staticmethod
     def _split_host(host: str):
@@ -98,7 +100,7 @@ class PVEClient:
                 host = host[len(prefix):]
         host = host.split("/")[0]
         if host.startswith("["):  # IPv6 [::1]:8006
-            h, _, rest = host[1:].partition("]")
+            h, _sep, rest = host[1:].partition("]")
             port = rest.lstrip(":") or DEFAULT_PORT
             return f"[{h}]", int(port)
         if host.count(":") == 1:
@@ -114,7 +116,7 @@ class PVEClient:
             return self.session.post(f"{self.base}/access/ticket", data=data, timeout=self.timeout,
                                      verify=self.session.verify)
         except requests.RequestException as e:
-            raise PVEError(f"No se puede conectar con {self.host}:{self.port}: {e}") from e
+            raise PVEError(_("No se puede conectar con {host}:{port}: {e}", host=self.host, port=self.port, e=e)) from e
 
     def _login(self, password: str, otp: str | None, tfa_callback=None):
         r = self._post_ticket(password)
@@ -123,12 +125,12 @@ class PVEClient:
             r = self._post_ticket(password.strip())
         if r.status_code == 401:
             if "@" not in self.user:
-                hint = "falta el realm en el usuario (p. ej. root@pam)"
+                hint = _("falta el realm en el usuario (p. ej. root@pam)")
             else:
-                hint = "usuario, realm (@pam / @pve) o contraseña incorrectos"
-            raise PVEError(f"Login rechazado por {self.host} (401): {hint}")
+                hint = _("usuario, realm (@pam / @pve) o contraseña incorrectos")
+            raise PVEError(_("Login rechazado por {host} (401): {hint}", host=self.host, hint=hint))
         if r.status_code != 200:
-            raise PVEError(f"Login fallido en {self.host} ({r.status_code}): {r.reason}")
+            raise PVEError(_("Login fallido en {host} ({status_code}): {reason}", host=self.host, status_code=r.status_code, reason=r.reason))
         d = r.json().get("data") or {}
         if d.get("NeedTFA"):
             d = self._second_factor(d.get("ticket", ""), otp, tfa_callback)
@@ -139,9 +141,8 @@ class PVEClient:
         """Completa el login de una cuenta con 2FA respondiendo al desafío de PVE (segunda llamada a /access/ticket)."""
         methods = tfa_methods(challenge)
         if not {"totp", "recovery", "yubico"} & set(methods):
-            names = ", ".join(METHOD_NAMES.get(m, m) for m in methods) or "desconocido"
-            raise PVETFAError(f"La cuenta {self.user} usa como segundo factor {names}, que esta herramienta no "
-                              f"puede usar. {TOKEN_HINT}")
+            names = ", ".join(_(METHOD_NAMES.get(m, m)) for m in methods) or _("desconocido")
+            raise PVETFAError(_("La cuenta {user} usa como segundo factor {names}, que esta herramienta no puede usar. {TOKEN_HINT}", user=self.user, names=names, TOKEN_HINT=_(TOKEN_HINT)))
         error = None
         for attempt in range(max_attempts):
             if attempt == 0 and otp:
@@ -149,24 +150,23 @@ class PVEClient:
             elif tfa_callback:
                 code = tfa_callback(self.host, self.user, methods, error)
                 if not code:
-                    raise PVETFAError(f"Login cancelado: la cuenta {self.user} tiene 2FA y no se indicó el código. "
-                                      f"{TOKEN_HINT}")
+                    raise PVETFAError(_("Login cancelado: la cuenta {user} tiene 2FA y no se indicó el código. {TOKEN_HINT}", user=self.user, TOKEN_HINT=_(TOKEN_HINT)))
             elif otp:
                 break  # el código indicado de antemano fue rechazado y no hay forma de pedir otro
             else:
-                raise PVETFAError(f"La cuenta {self.user} tiene segundo factor (2FA): indica el código TOTP o de "
-                                  f"recuperación (en la línea de comandos, --totp). {TOKEN_HINT}")
+                raise PVETFAError(_("La cuenta {user} tiene segundo factor (2FA): indica el código TOTP o de recuperación (en la línea de comandos, --totp). {TOKEN_HINT}", user=self.user, TOKEN_HINT=_(TOKEN_HINT)))
             response = tfa_response(code, methods)
             r = self._post_ticket(response, challenge)
             d = (r.json().get("data") or {}) if r.status_code == 200 else {}
             if d.get("ticket") and not d.get("NeedTFA"):
-                self.auth_method = ("Contraseña + 2FA (código de recuperación)" if response.startswith("recovery:")
-                                    else "Contraseña + 2FA (Yubico)" if response.startswith("yubico:")
-                                    else "Contraseña + 2FA (TOTP)")
+                self.auth_method = (D("Contraseña + 2FA (código de recuperación)") if response.startswith("recovery:")
+                                    else D("Contraseña + 2FA (Yubico)") if response.startswith("yubico:")
+                                    else D("Contraseña + 2FA (TOTP)"))
                 return d
-            error = ("Código rechazado: comprueba que es el actual (caduca cada 30 s) y que la hora del equipo es "
-                     "correcta. Tras varios fallos Proxmox bloquea temporalmente el 2FA de la cuenta")
-        raise PVETFAError(f"Segundo factor rechazado por {self.host} para {self.user}. {error or ''} {TOKEN_HINT}".replace("  ", " "))
+            error = (_("Código rechazado: comprueba que es el actual (caduca cada 30 s) y que la hora del equipo es "
+                     "correcta. Tras varios fallos Proxmox bloquea temporalmente el 2FA de la cuenta"))
+        raise PVETFAError(_("Segundo factor rechazado por {host} para {user}. {error} {hint}", host=self.host, user=self.user,
+                            error=error or "", hint=_(TOKEN_HINT)).replace("  ", " "))
 
     def get(self, path: str, **params):
         url = self.base + "/" + path.lstrip("/")
@@ -174,11 +174,11 @@ class PVEClient:
             r = self.session.get(url, params=params or None, timeout=self.timeout,
                                  verify=self.session.verify)
         except requests.RequestException as e:
-            raise PVEError(f"Error de red en {path}: {e}") from e
+            raise PVEError(_("Error de red en {path}: {e}", path=path, e=e)) from e
         if r.status_code == 401:
-            raise PVEError("No autorizado (401): revisa credenciales/token")
+            raise PVEError(_("No autorizado (401): revisa credenciales/token"))
         if r.status_code != 200:
-            raise PVEError(f"{path}: HTTP {r.status_code} {r.reason}")
+            raise PVEError(_("{path}: HTTP {status_code} {reason}", path=path, status_code=r.status_code, reason=r.reason))
         return r.json().get("data")
 
     def try_get(self, path: str, default=None, **params):

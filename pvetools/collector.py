@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import __version__
 from . import extras
 from .schema import FORMAT_VERSION
+from .i18n import D, N_, _, get_lang
 from .api import PVEClient, PVEError, q
 
 SHEETS = ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough",
@@ -22,12 +23,12 @@ SHEETS = ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "
 
 # Agrupación para la navegación de la GUI
 SHEET_GROUPS = [
-    ("Máquinas virtuales", ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough", "vBackupStatus"]),
-    ("Hosts", ["vHost", "vPhysicalDisk", "vRepo", "vCert"]),
-    ("Red", ["vHostNIC", "vBond", "vBridge", "vHostVLAN", "vSDN", "vSDNObj", "vCorosync"]),
-    ("Almacenamiento", ["vDatastore", "vZFS", "vCephOSD", "vCephPool"]),
-    ("Clúster", ["vCluster", "vHA", "vBackup", "vReplication", "vTasks"]),
-    ("Seguridad", ["vFirewall", "vFirewallObj", "vUsers", "vACL"]),
+    (N_("Máquinas virtuales"), ["vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough", "vBackupStatus"]),
+    (N_("Hosts"), ["vHost", "vPhysicalDisk", "vRepo", "vCert"]),
+    (N_("Red"), ["vHostNIC", "vBond", "vBridge", "vHostVLAN", "vSDN", "vSDNObj", "vCorosync"]),
+    (N_("Almacenamiento"), ["vDatastore", "vZFS", "vCephOSD", "vCephPool"]),
+    (N_("Clúster"), ["vCluster", "vHA", "vBackup", "vReplication", "vTasks"]),
+    (N_("Seguridad"), ["vFirewall", "vFirewallObj", "vUsers", "vACL"]),
     ("Resumen", ["vHealth", "vSource"]),
 ]
 
@@ -127,28 +128,28 @@ class Inventory:
             host = conn["host"]
             started = time.time()
             src = {"Host conectado": host, "Usuario": conn.get("user"),
-                   "Autenticación": "API token" if conn.get("token_id") else "Contraseña",
+                   "Autenticación": "API token" if conn.get("token_id") else D("Contraseña"),
                    "Fecha": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                   "Versión herramienta": __version__, "Versión formato": FORMAT_VERSION}
+                   "Versión herramienta": __version__, "Versión formato": FORMAT_VERSION, "Idioma": get_lang()}
             try:
-                self.progress(f"Conectando a {host}…")
+                self.progress(_("Conectando a {host}…", host=host))
                 api = PVEClient(**conn)
                 src["Autenticación"] = api.auth_method
                 ver = api.get("version")
                 src["Versión PVE"] = ver.get("version")
                 cluster_name, skipped = self._collect_one(api, host)
                 src["Clúster / nodo"] = cluster_name
-                src["Estado"] = "Omitido (ya inventariado por otra conexión)" if skipped else "OK"
+                src["Estado"] = D("Omitido (ya inventariado por otra conexión)") if skipped else "OK"
             except PVEError as e:
-                src["Estado"] = f"ERROR: {e}"
-                self.progress(f"Error en {host}: {e}")
+                src["Estado"] = D("ERROR: {e}", e=e)
+                self.progress(_("Error en {host}: {e}", host=host, e=e))
             except Exception as e:  # noqa: BLE001 - nunca abortar el inventario completo
-                src["Estado"] = f"ERROR inesperado: {type(e).__name__}: {e}"
-                self.progress(f"Error inesperado en {host}: {e}")
+                src["Estado"] = D("ERROR inesperado: {kind}: {e}", kind=type(e).__name__, e=e)
+                self.progress(_("Error inesperado en {host}: {e}", host=host, e=e))
             src["Duración (s)"] = round(time.time() - started, 1)
             self.sheets["vSource"].append(src)
         self._health()
-        self.progress("Inventario completado")
+        self.progress(_("Inventario completado"))
         return self.sheets
 
     # ---------------------------------------------------------------- por clúster/nodo
@@ -174,7 +175,7 @@ class Inventory:
         storages = [r for r in resources if r.get("type") == "storage"]
         for n in nodes:
             self._seen_nodes.add(n.get("node"))
-        self.progress(f"{label}: {len(nodes)} nodo(s), {len(guests)} VM/CT, {len(storages)} almacenamiento(s)")
+        self.progress(_("{label}: {nodes} nodo(s), {guests} VM/CT, {storages} almacenamiento(s)", label=label, nodes=len(nodes), guests=len(guests), storages=len(storages)))
 
         ha = {r.get("sid"): r for r in api.try_get("cluster/ha/resources", [])}
         guest_rows = self._guests(api, label, guests, ha)
@@ -187,16 +188,16 @@ class Inventory:
         steps = [("SDN", lambda: extras.sdn(self, api, label)),
                  ("corosync", lambda: extras.corosync(self, api, label, bool(cl))),
                  ("firewall", lambda: extras.firewall(self, api, label, nodes)),
-                 ("usuarios y permisos", lambda: extras.access(self, api, label)),
+                 (N_("usuarios y permisos"), lambda: extras.access(self, api, label)),
                  ("Ceph", lambda: extras.ceph(self, api, label, nodes)),
-                 ("estado de backups", lambda: extras.backup_status(self, api, label, storages, guest_rows)),
-                 ("tareas", lambda: extras.tasks(self, api, label))]
+                 (N_("estado de backups"), lambda: extras.backup_status(self, api, label, storages, guest_rows)),
+                 (N_("tareas"), lambda: extras.tasks(self, api, label))]
         for name, fn in steps:
-            self.progress(f"{label}: {name}…")
+            self.progress(f"{label}: {_(name)}…")
             try:
                 fn()
             except Exception as e:  # noqa: BLE001 - una sección opcional nunca aborta el inventario
-                self.progress(f"{label}: no se pudo leer {name}: {e}")
+                self.progress(_("{label}: no se pudo leer {name}: {e}", label=label, name=_(name), e=e))
         return label, False
 
     # ---------------------------------------------------------------- VMs y CTs
@@ -230,7 +231,7 @@ class Inventory:
         out = {s: [] for s in ("vInfo", "vCPU", "vMemory", "vDisk", "vCD", "vNetwork", "vSnapshot", "vPassthrough")}
         for k in sorted(cfg):
             ptype = "PCI" if re.match(r"^hostpci\d+$", k) else "USB" if re.match(r"^usb\d+$", k) else \
-                "Serie" if re.match(r"^serial\d+$", k) else "Dispositivo LXC" if re.match(r"^dev\d+$", k) else None
+                D("Serie") if re.match(r"^serial\d+$", k) else D("Dispositivo LXC") if re.match(r"^dev\d+$", k) else None
             if not ptype:
                 continue
             d = parse_kv(cfg[k], first_key="host")
@@ -466,7 +467,7 @@ class Inventory:
             key = s.get("storage") if s.get("shared") else f"{s.get('node')}/{s.get('storage')}"
             shared[key] = s
         self.sheets["vCluster"].append({
-            "Clúster / nodo": label, "Tipo": "Clúster" if cl else "Nodo independiente",
+            "Clúster / nodo": label, "Tipo": D("Clúster") if cl else D("Nodo independiente"),
             "Conectado vía": host, "Nodos": len(nodes),
             "Nodos online": len([n for n in nodes if n.get("status") == "online"]),
             "Quórum": (flag(cl.get("quorate")) if cl else "N/A"), "Versión config": cl.get("version") if cl else None,
@@ -484,18 +485,18 @@ class Inventory:
     def _ha(self, api, label, ha):
         for sid, r in sorted(ha.items()):
             self.sheets["vHA"].append({
-                "Clúster": label, "Elemento": "Recurso", "Recurso": sid, "Estado solicitado": r.get("state"),
+                "Clúster": label, "Elemento": D("Recurso"), "Recurso": sid, "Estado solicitado": r.get("state"),
                 "Grupo": r.get("group"), "Máx. reinicios": r.get("max_restart"),
                 "Máx. reubicaciones": r.get("max_relocate"), "Fallback": r.get("failback"),
                 "Comentario": r.get("comment"),
             })
         # PVE 8: grupos HA ; PVE 9: reglas HA (sustituyen a los grupos)
         for g in api.try_get("cluster/ha/groups", []) or []:
-            self.sheets["vHA"].append({"Clúster": label, "Elemento": "Grupo (PVE 8)", "Recurso": g.get("group"),
+            self.sheets["vHA"].append({"Clúster": label, "Elemento": D("Grupo (PVE 8)"), "Recurso": g.get("group"),
                                        "Nodos": g.get("nodes"), "Restringido": flag(g.get("restricted")),
                                        "Fallback": "No" if g.get("nofailback") else "Sí", "Comentario": g.get("comment")})
         for rl in api.try_get("cluster/ha/rules", []) or []:
-            self.sheets["vHA"].append({"Clúster": label, "Elemento": f"Regla {rl.get('type', '')} (PVE 9)".replace("  ", " "),
+            self.sheets["vHA"].append({"Clúster": label, "Elemento": D("Regla {kind} (PVE 9)", kind=rl.get("type", "")).replace("  ", " "),
                                        "Recurso": rl.get("rule"), "Recursos afectados": rl.get("resources"),
                                        "Nodos": rl.get("nodes"), "Afinidad": rl.get("affinity"),
                                        "Habilitada": "No" if rl.get("disable") else "Sí", "Comentario": rl.get("comment")})
@@ -503,9 +504,9 @@ class Inventory:
     def _backup(self, api, label):
         for j in api.try_get("cluster/backup", []) or []:
             if j.get("all"):
-                sel = "Todas" + (f" excepto {j.get('exclude')}" if j.get("exclude") else "")
+                sel = D("Todas excepto {vms}", vms=j.get("exclude")) if j.get("exclude") else D("Todas")
             elif j.get("pool"):
-                sel = f"Pool {j.get('pool')}"
+                sel = D("Pool {pool}", pool=j.get("pool"))
             else:
                 sel = j.get("vmid")
             self.sheets["vBackup"].append({
@@ -538,56 +539,56 @@ class Inventory:
 
         for c in self.sheets["vCluster"]:
             if c["Quórum"] == "No":
-                add("CRÍTICO", c["Clúster / nodo"], "Clúster", "El clúster no tiene quórum")
+                add("CRÍTICO", c["Clúster / nodo"], D("Clúster"), D("El clúster no tiene quórum"))
         for n in self.sheets["vHost"]:
-            obj = f"Nodo {n['Nodo']}"
+            obj = D("Nodo {node}", node=n["Nodo"])
             if n["Estado"] != "online":
-                add("CRÍTICO", n["Clúster"], obj, f"Nodo en estado '{n['Estado']}'")
+                add("CRÍTICO", n["Clúster"], obj, D("Nodo en estado '{state}'", state=n["Estado"]))
             if (n["Uso RAM (%)"] or 0) >= 90:
-                add("AVISO", n["Clúster"], obj, f"Uso de RAM al {n['Uso RAM (%)']}%")
+                add("AVISO", n["Clúster"], obj, D("Uso de RAM al {pct}%", pct=n["Uso RAM (%)"]))
             if (n["Root FS uso (%)"] or 0) >= STORAGE_WARN:
-                add("AVISO", n["Clúster"], obj, f"Disco raíz al {n['Root FS uso (%)']}%")
+                add("AVISO", n["Clúster"], obj, D("Disco raíz al {pct}%", pct=n["Root FS uso (%)"]))
             if (n["Ratio vCPU:hilo"] or 0) > 4:
-                add("INFO", n["Clúster"], obj, f"Sobreasignación de CPU {n['Ratio vCPU:hilo']}:1")
+                add("INFO", n["Clúster"], obj, D("Sobreasignación de CPU {ratio}:1", ratio=n["Ratio vCPU:hilo"]))
             if n["Estado"] == "online" and n["Suscripción"] and n["Suscripción"].lower() != "active":
-                add("INFO", n["Clúster"], obj, f"Suscripción: {n['Suscripción']}")
+                add("INFO", n["Clúster"], obj, D("Suscripción: {sub}", sub=n["Suscripción"]))
         versions = {}
         for n in self.sheets["vHost"]:
             if n["Versión PVE"]:
                 versions.setdefault(n["Clúster"], set()).add(n["Versión PVE"])
         for label, vs in versions.items():
             if len(vs) > 1:
-                add("AVISO", label, "Clúster", f"Versiones de PVE mezcladas: {', '.join(sorted(vs))}")
+                add("AVISO", label, D("Clúster"), D("Versiones de PVE mezcladas: {versions}", versions=", ".join(sorted(vs))))
         for s in self.sheets["vDatastore"]:
             u = s["Uso (%)"] or 0
-            obj = f"Almacenamiento {s['Almacenamiento']} ({s['Nodo']})"
+            obj = D("Almacenamiento {storage} ({node})", storage=s["Almacenamiento"], node=s["Nodo"])
             if u >= STORAGE_CRIT:
-                add("CRÍTICO", s["Clúster"], obj, f"Ocupado al {u}%")
+                add("CRÍTICO", s["Clúster"], obj, D("Ocupado al {pct}%", pct=u))
             elif u >= STORAGE_WARN:
-                add("AVISO", s["Clúster"], obj, f"Ocupado al {u}%")
+                add("AVISO", s["Clúster"], obj, D("Ocupado al {pct}%", pct=u))
             if s["Estado"] not in ("available", None) and s["Deshabilitado"] == "No":
-                add("AVISO", s["Clúster"], obj, f"Estado '{s['Estado']}'")
+                add("AVISO", s["Clúster"], obj, D("Estado '{state}'", state=s["Estado"]))
         for s in self.sheets["vSnapshot"]:
             if (s["Antigüedad (días)"] or 0) > SNAPSHOT_AGE_WARN_DAYS:
                 add("AVISO", s["Clúster"], f"{s['Tipo']} {s['VMID']} {s['Nombre']}",
-                    f"Snapshot '{s['Snapshot']}' con {s['Antigüedad (días)']} días")
+                    D("Snapshot '{snap}' con {days} días", snap=s["Snapshot"], days=s["Antigüedad (días)"]))
         for v in self.sheets["vInfo"]:
             obj = f"{v['Tipo']} {v['VMID']} {v['Nombre']}"
             if v["Tipo"] == "VM" and v["Estado"] == "running" and v["Agente QEMU"] == "No":
-                add("INFO", v["Clúster"], obj, "Guest agent no habilitado")
+                add("INFO", v["Clúster"], obj, D("Guest agent no habilitado"))
             if v["Agente responde"] == "No":
-                add("AVISO", v["Clúster"], obj, "Guest agent habilitado pero no responde")
+                add("AVISO", v["Clúster"], obj, D("Guest agent habilitado pero no responde"))
             if v["Bloqueo"]:
-                add("AVISO", v["Clúster"], obj, f"Bloqueada ({v['Bloqueo']})")
+                add("AVISO", v["Clúster"], obj, D("Bloqueada ({lock})", lock=v["Bloqueo"]))
         for d in self.sheets["vDisk"]:
             if d["Sin usar"] == "Sí":
-                add("INFO", d["Clúster"], f"{d['Tipo']} {d['VMID']} {d['Nombre']}", f"Disco sin usar {d['Volumen']}")
+                add("INFO", d["Clúster"], f"{d['Tipo']} {d['VMID']} {d['Nombre']}", D("Disco sin usar {vol}", vol=d["Volumen"]))
         for c in self.sheets["vCD"]:
             if c["Conectado"] == "Sí":
-                add("INFO", c["Clúster"], f"{c['Tipo']} {c['VMID']} {c['Nombre']}", f"ISO montada: {c['Medio']}")
+                add("INFO", c["Clúster"], f"{c['Tipo']} {c['VMID']} {c['Nombre']}", D("ISO montada: {iso}", iso=c["Medio"]))
         for label, g in getattr(self, "_not_backed_up", []):
             add("AVISO", label, f"{'VM' if g.get('type') == 'qemu' else 'CT'} {g.get('vmid')} {g.get('name') or ''}".strip(),
-                "No está incluida en ningún job de backup")
+                D("No está incluida en ningún job de backup"))
         extras.health(self, add)
         order = {"CRÍTICO": 0, "AVISO": 1, "INFO": 2}
         h.sort(key=lambda r: (order.get(r["Severidad"], 9), r["Clúster"] or "", r["Objeto"]))

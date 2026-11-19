@@ -8,6 +8,17 @@ Herramienta para Windows que se conecta a la API de **Proxmox VE 8 y 9**, tanto 
 
 ![GUI](docs/main.png)
 
+**Idiomas:** castellano · [English](README.en.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Português](README.pt.md) · [Italiano](README.it.md)
+
+## Idiomas
+
+Desde la versión 1.0 las dos herramientas (inventario y planificador) funcionan en **castellano, inglés, alemán, francés, portugués e italiano**: ventanas, mensajes, ayuda de la línea de comandos, Excel/CSV y todos los documentos Word.
+
+* **Interfaz gráfica:** selector *Idioma* (en el inventario, arriba a la derecha; en el planificador, menú *Idioma*); el cambio es inmediato y se recuerda para la próxima vez. La primera vez se usa el idioma de Windows (o inglés si no es ninguno de los seis).
+* **Línea de comandos:** `--lang es|en|de|fr|pt|it` (o `--idioma`), o la variable de entorno `PVE_LANG`. Sin indicarlo, el idioma del sistema.
+* **Excel/CSV:** las cabeceras, el aviso y los valores fijos (`Sí`/`No`, avisos de *vHealth*…) salen en el idioma elegido. El planificador lee un inventario en **cualquiera** de los seis idiomas y genera sus documentos en el que se elija, así que el cliente puede ejecutar el inventario en su idioma y el plan entregarse en otro.
+* Los nombres de los ficheros generados también se traducen (`migration_plan.xlsx`, `Migrationsplan.xlsx`…).
+
 ## Aviso de uso
 
 * Herramienta interna destinada exclusivamente a proyectos de Fsas Technologies; no está permitida su distribución ni su uso fuera de ese ámbito.
@@ -117,7 +128,7 @@ pveinventory-cli.exe --host pve1.midominio.local --host pve-sa.midominio.local ^
     -o C:\Inventario\pve.xlsx --csv C:\Inventario\csv
 ```
 
-Opciones: `--password-env VAR` (contraseña desde una variable de entorno), `--totp CÓDIGO` (cuentas con 2FA), `PVE_TOKEN_SECRET` (secreto desde una variable de entorno), `--no-agent` (más rápido, sin IPs de VMs), `--verify-ssl`, `--anonimizar` (ver más abajo). Código de salida: 0 todo OK, 1 alguna conexión falló, 2 fallaron todas.
+Opciones: `--password-env VAR` (contraseña desde una variable de entorno), `--totp CÓDIGO` (cuentas con 2FA), `PVE_TOKEN_SECRET` (secreto desde una variable de entorno), `--no-agent` (más rápido, sin IPs de VMs), `--verify-ssl`, `--anonimizar` (ver más abajo), `--lang` (idioma del Excel/CSV y de los mensajes). Código de salida: 0 todo OK, 1 alguna conexión falló, 2 fallaron todas.
 
 ## Anonimizar el inventario
 
@@ -161,7 +172,7 @@ Si aun así hay problemas, las causas habituales en los equipos de los usuarios 
 
 Opción A, en un PC Windows con Python 3.10+ instalado: ejecuta `build.bat`. Genera `dist\PVEInventory.exe` (GUI) y `dist\pveinventory-cli.exe` (consola), que son autónomos y se pueden copiar a cualquier Windows 10/11 sin instalar nada.
 
-Opción B, en GitHub: sube el proyecto a un repositorio y el workflow `.github/workflows/build-windows.yml` compila los dos .exe (Actions → *Build Windows exe* → *Run workflow*, o creando un tag `v0.1.0`, que además los publica como release).
+Opción B, en GitHub: sube el proyecto a un repositorio y el workflow `.github/workflows/build-windows.yml` compila los dos .exe (Actions → *Build Windows exe* → *Run workflow*, o creando un tag `v1.0.0`, que además los publica como release).
 
 ## Desarrollo y pruebas
 
@@ -169,8 +180,11 @@ Opción B, en GitHub: sube el proyecto a un repositorio y el workflow `.github/w
 pip install -r requirements.txt
 python -m pvetools                 # GUI (sin argumentos) o CLI (con argumentos)
 python -m pytest tests             # pruebas con un Proxmox simulado (clúster PVE 9 + nodo PVE 8)
-python tools/gen_format_doc.py     # regenera docs/FORMATO_EXPORTACION.md tras cambiar schema.py
+python tools/gen_format_doc.py     # regenera docs/FORMATO_EXPORTACION*.md tras cambiar schema.py
+python tools/i18n_check.py         # comprueba que todos los textos tienen traducción a los seis idiomas
 ```
+
+Los textos se escriben en castellano en el código, marcados con `_()` (o `N_()`/`D()` para valores de datos), y sus traducciones están en `pvetools/tr_catalog.py` (inventario) y `pvemigplan/tr_catalog.py` (planificador). Al añadir un texto nuevo, añade su traducción al catálogo: la prueba `tests/test_i18n.py` falla si falta alguna.
 
 `tests/mock_pve.py` simula la API de Proxmox, así que se puede probar sin servidores reales.
 

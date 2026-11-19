@@ -4,20 +4,21 @@ from __future__ import annotations
 import copy
 import json
 
+from pvetools.i18n import N_, _
 from pvetools.safefile import atomic_text
 
 PVE_VERSIONS = ["9.1", "9.0", "8.4"]
 PBS_VERSIONS = {"9.1": "4.1", "9.0": "4.0", "8.4": "3.4"}
 STORAGE_TYPES = {
-    "ceph": "Ceph hiperconvergente (discos NVMe en los nodos)",
-    "zfs": "ZFS local en cada nodo + replicación",
-    "san": "Cabina externa iSCSI / FC (LVM compartido)",
-    "nfs": "NAS externa NFS",
+    "ceph": N_("Ceph hiperconvergente (discos NVMe en los nodos)"),
+    "zfs": N_("ZFS local en cada nodo + replicación"),
+    "san": N_("Cabina externa iSCSI / FC (LVM compartido)"),
+    "nfs": N_("NAS externa NFS"),
 }
 
 DEFAULT = {
     "cliente": "",
-    "proyecto": "Migración a nueva plataforma Proxmox VE",
+    "proyecto": N_("Migración a nueva plataforma Proxmox VE"),
     "autor": "",
     "modo": "aconsejar",            # aconsejar | hardware
     "sin_migracion": False,         # True = solo documentar la nueva plataforma (sin olas ni runbook de migración)
@@ -80,7 +81,9 @@ DEFAULT = {
 
 
 def new() -> dict:
-    return copy.deepcopy(DEFAULT)
+    sc = copy.deepcopy(DEFAULT)
+    sc["proyecto"] = _(sc["proyecto"])
+    return sc
 
 
 def merge(base: dict, over: dict) -> dict:

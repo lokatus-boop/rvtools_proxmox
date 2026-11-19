@@ -1,6 +1,8 @@
 """Gráficos del informe de solo análisis (infraestructura actual)."""
 from __future__ import annotations
 
+from pvetools.i18n import _
+
 import os
 from types import SimpleNamespace
 
@@ -47,7 +49,7 @@ def kpi_state(a, folder):
     ax.grid(False)
     ax.spines["bottom"].set_visible(False)
     ax.spines["left"].set_visible(False)
-    ax.set_title(f"Estado de las {total} VMs, contenedores y plantillas")
+    ax.set_title(_("Estado de las {total} VMs, contenedores y plantillas", total=total))
     _legend_below(ax, ncol=3, gap=0.15)
     return _save(fig, folder, "estado_vms.png")
 
@@ -63,16 +65,16 @@ def node_usage(a, folder):
     h = 0.36
     cpu = [r["Uso CPU (%)"] or 0 for r in rows]
     ram = [r["Uso RAM (%)"] or 0 for r in rows]
-    b1 = ax.barh([i - h / 2 for i in y], cpu, height=h, color=C1, label="Uso de CPU (%)")
-    b2 = ax.barh([i + h / 2 for i in y], ram, height=h, color=C2, label="Uso de RAM (%)")
+    b1 = ax.barh([i - h / 2 for i in y], cpu, height=h, color=C1, label=_("Uso de CPU (%)"))
+    b2 = ax.barh([i + h / 2 for i in y], ram, height=h, color=C2, label=_("Uso de RAM (%)"))
     ax.set_xlim(0, 110)
     ax.axvline(80, color=INK2, lw=1, ls="--")
     ax.set_yticks(y, labels)
     ax.invert_yaxis()
     _hbar_labels(ax, b1, "{:.0f} %")
     _hbar_labels(ax, b2, "{:.0f} %")
-    ax.set_xlabel("% de uso en el momento del inventario · línea discontinua = 80 %")
-    ax.set_title("Uso de CPU y memoria por nodo")
+    ax.set_xlabel(_("% de uso en el momento del inventario · línea discontinua = 80 %"))
+    ax.set_title(_("Uso de CPU y memoria por nodo"))
     ax.grid(axis="y", visible=False)
     _legend_below(ax, ncol=2, gap=0.75)
     return _save(fig, folder, "uso_nodos.png")
@@ -91,8 +93,8 @@ def overcommit(a, folder):
     a1.set_xlim(0, max(ratio + [5]) * 1.25)
     _hbar_labels(a1, b, "{:.1f}:1")
     a1.invert_yaxis()
-    a1.set_title("Ratio vCPU : hilo (encendidas)")
-    a1.set_xlabel("línea discontinua = 4:1")
+    a1.set_title(_("Ratio vCPU : hilo (encendidas)"))
+    a1.set_xlabel(_("línea discontinua = 4:1"))
     a1.grid(axis="y", visible=False)
     pct = [r["RAM asignada encendidas (GiB)"] / r["RAM física (GiB)"] * 100 if r["RAM física (GiB)"] else 0 for r in rows]
     cols = [CRIT if v > 100 else WARN if v > 85 else C1 for v in pct]
@@ -102,8 +104,8 @@ def overcommit(a, folder):
     _hbar_labels(a2, b, "{:.0f} %")
     a2.set_yticks(range(len(rows)), [""] * len(rows))
     a2.invert_yaxis()
-    a2.set_title("RAM asignada / RAM física")
-    a2.set_xlabel("línea roja = 100 %")
+    a2.set_title(_("RAM asignada / RAM física"))
+    a2.set_xlabel(_("línea roja = 100 %"))
     a2.grid(axis="y", visible=False)
     fig.tight_layout()
     return _save(fig, folder, "sobreasignacion.png")
@@ -118,12 +120,12 @@ def vms_per_node(a, folder):
     off = [r["VMs/CTs"] - r["Encendidas"] for r in rows]
     fig, ax = plt.subplots(figsize=(7, max(2.0, 0.4 * len(rows) + 1)))
     ax.barh(labels, on, color=C1, height=0.6, label="Encendidas")
-    ax.barh(labels, off, left=on, color=SEQ_LIGHT, height=0.6, label="Apagadas", edgecolor=SURFACE, linewidth=1.5)
+    ax.barh(labels, off, left=on, color=SEQ_LIGHT, height=0.6, label=_("Apagadas"), edgecolor=SURFACE, linewidth=1.5)
     for i, r in enumerate(rows):
         ax.text(on[i] + off[i], i, f"  {r['VMs/CTs']}", va="center", fontsize=8, color=INK2)
     ax.set_xlim(0, max([x + y for x, y in zip(on, off)] + [1]) * 1.15)
     ax.invert_yaxis()
-    ax.set_title("VMs y contenedores por nodo")
+    ax.set_title(_("VMs y contenedores por nodo"))
     _int_axis(ax)
     ax.grid(axis="y", visible=False)
     _legend_below(ax, ncol=2, gap=0.45)
@@ -139,7 +141,7 @@ def os_family(a, folder):
     bars = ax.barh([k for k, _ in c], [v for _, v in c], color=[colors.get(k, NEUTRAL) for k, _ in c], height=0.6)
     ax.invert_yaxis()
     ax.set_xlim(0, max(v for _, v in c) * 1.18)
-    ax.set_title("Familia de sistema operativo")
+    ax.set_title(_("Familia de sistema operativo"))
     _int_axis(ax)
     ax.grid(axis="y", visible=False)
     _hbar_labels(ax, bars)
@@ -150,7 +152,7 @@ def ram_sizes(a, folder):
     b = a.ram_buckets()
     fig, ax = plt.subplots(figsize=(5.2, 2.6))
     _vbars(ax, list(b), list(b.values()))
-    ax.set_title("Tamaño de las VMs (memoria)")
+    ax.set_title(_("Tamaño de las VMs (memoria)"))
     return _save(fig, folder, "tamanos_ram.png")
 
 
@@ -164,15 +166,15 @@ def storage_types(a, folder):
     used = [v[1] / 1024 for _, v in items]
     free = [max(v[0] - v[1], 0) / 1024 for _, v in items]
     fig, ax = plt.subplots(figsize=(6.5, 0.45 * len(items) + 1.1))
-    ax.barh(labels, used, color=C1, height=0.6, label="Usado")
-    ax.barh(labels, free, left=used, color=SEQ_LIGHT, height=0.6, label="Libre", edgecolor=SURFACE, linewidth=1.5)
+    ax.barh(labels, used, color=C1, height=0.6, label=_("Usado"))
+    ax.barh(labels, free, left=used, color=SEQ_LIGHT, height=0.6, label=_("Libre"), edgecolor=SURFACE, linewidth=1.5)
     for i in range(len(items)):
         tot = used[i] + free[i]
-        ax.text(tot, i, f"  {tot:.1f} TiB · {used[i] / tot * 100 if tot else 0:.0f} %", va="center", fontsize=8, color=INK2)
+        ax.text(tot, i, _("  {tot:.1f} TiB · {v:.0f} %", tot=tot, v=used[i] / tot * 100 if tot else 0), va="center", fontsize=8, color=INK2)
     ax.set_xlim(0, max(u + f for u, f in zip(used, free)) * 1.35)
     ax.invert_yaxis()
     ax.set_xlabel("TiB")
-    ax.set_title("Capacidad por tipo de almacenamiento")
+    ax.set_title(_("Capacidad por tipo de almacenamiento"))
     ax.grid(axis="y", visible=False)
     _legend_below(ax, ncol=2)
     return _save(fig, folder, "almacenamiento_tipos.png")
@@ -183,12 +185,12 @@ def networks(a, folder):
     if not rows:
         return None
     rows = sorted(rows, key=lambda r: -r["vms"])[:15]
-    labels = [f"{r['bridge']}" + (f" · VLAN {r['vlan']}" if r["vlan"] else (" (SDN)" if r["sdn"] else " · sin VLAN")) for r in rows]
+    labels = [f"{r['bridge']}" + (_(" · VLAN {vlan}", vlan=r['vlan']) if r["vlan"] else (" (SDN)" if r["sdn"] else _(" · sin VLAN"))) for r in rows]
     fig, ax = plt.subplots(figsize=(6.5, 0.36 * len(rows) + 1.0))
     bars = ax.barh(labels, [r["vms"] for r in rows], color=C1, height=0.6)
     ax.invert_yaxis()
     ax.set_xlim(0, max(r["vms"] for r in rows) * 1.18)
-    ax.set_title("VMs/CTs por red (bridge / VLAN)")
+    ax.set_title(_("VMs/CTs por red (bridge / VLAN)"))
     _int_axis(ax)
     ax.grid(axis="y", visible=False)
     _hbar_labels(ax, bars)
@@ -201,7 +203,7 @@ def backup_age(a, folder):
         return None
     fig, ax = plt.subplots(figsize=(5.6, 2.6))
     colors = [CRIT, C3, C1, WARN, C2]
-    bars = ax.bar(list(b), list(b.values()), color=colors, width=0.6)
+    bars = ax.bar([_(k) for k in b], list(b.values()), color=colors, width=0.6)
     top = max(b.values()) or 1
     ax.set_ylim(0, top * 1.18)
     ax.grid(axis="x", visible=False)
@@ -209,18 +211,18 @@ def backup_age(a, folder):
         if r.get_height():
             ax.text(r.get_x() + r.get_width() / 2, r.get_height() + top * 0.02, f"{r.get_height():.0f}", ha="center", va="bottom",
                     fontsize=8, color=INK2)
-    ax.set_title("Antigüedad del último backup (VMs/CTs)")
+    ax.set_title(_("Antigüedad del último backup (VMs/CTs)"))
     _int_axis(ax, "y")
     return _save(fig, folder, "backup_antiguedad.png")
 
 
 def snapshot_age(a, folder):
-    b = {k: v for k, v in a.snapshot_age().items() if v or k != "Sin fecha"}
+    b = {k: v for k, v in a.snapshot_age().items() if v or k != _("Sin fecha")}
     if not sum(b.values()):
         return None
     fig, ax = plt.subplots(figsize=(5.2, 2.4))
     _vbars(ax, list(b), list(b.values()), color=SEQ_MID)
-    ax.set_title("Snapshots por antigüedad")
+    ax.set_title(_("Snapshots por antigüedad"))
     return _save(fig, folder, "snapshots.png")
 
 
@@ -234,7 +236,7 @@ def findings(a, folder):
         return None
     fig, ax = plt.subplots(figsize=(7, 0.35 * len(cats) + 1.1))
     left = [0] * len(cats)
-    for sev, col, lbl in (("CRÍTICO", CRIT, "Crítico"), ("AVISO", WARN, "Aviso"), ("INFO", SEQ_LIGHT, "Informativo")):
+    for sev, col, lbl in (("CRÍTICO", CRIT, _("Crítico")), ("AVISO", WARN, _("Aviso")), ("INFO", SEQ_LIGHT, _("Informativo"))):
         vals = [c.get((k, sev), 0) for k in cats]
         ax.barh(cats, vals, left=left, color=col, height=0.6, label=lbl, edgecolor=SURFACE, linewidth=1.5)
         left = [x + y for x, y in zip(left, vals)]
@@ -242,7 +244,7 @@ def findings(a, folder):
         ax.text(v, i, f"  {v}", va="center", fontsize=8, color=INK2)
     ax.set_xlim(0, max(left) * 1.15)
     ax.invert_yaxis()
-    ax.set_title("Hallazgos por categoría y severidad")
+    ax.set_title(_("Hallazgos por categoría y severidad"))
     _int_axis(ax)
     ax.grid(axis="y", visible=False)
     _legend_below(ax, ncol=3)
@@ -257,13 +259,13 @@ def all_charts(a, folder) -> dict:
            ("origen_nodos", lambda x, f: base.source_hosts(shim, f, "")), ("so_familia", os_family),
            ("origen_so", lambda x, f: base.os_distribution(shim, f)), ("origen_tamanos", lambda x, f: base.vm_sizes(shim, f)),
            ("tamanos_ram", ram_sizes), ("almacenamiento_tipos", storage_types),
-           ("origen_almacenamiento", lambda x, f: base.source_storage(shim, f, "Almacenamientos (usado / libre)")), ("redes", networks),
+           ("origen_almacenamiento", lambda x, f: base.source_storage(shim, f, _("Almacenamientos (usado / libre)"))), ("redes", networks),
            ("backup_antiguedad", backup_age), ("snapshots", snapshot_age), ("hallazgos", findings))
     for name, fn in fns:
         try:
             p = fn(a, folder)
         except Exception as exc:  # noqa: BLE001  (un gráfico fallido no impide el informe)
-            print(f"Aviso: no se pudo generar el gráfico {name}: {exc}")
+            print(_("Aviso: no se pudo generar el gráfico {name}: {exc}", name=name, exc=exc))
             p = None
         if p:
             out[name] = p

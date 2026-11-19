@@ -4,11 +4,13 @@ from __future__ import annotations
 import os
 import sys
 
+from .i18n import N_
+
 COMPANY = "Fsas Technologies"
 DISCLAIMER_VERSION = 1
 
-DISCLAIMER_TITLE = "Aviso de uso"
-DISCLAIMER = (
+DISCLAIMER_TITLE = N_("Aviso de uso")
+DISCLAIMER = N_(
     "USO EXCLUSIVO PARA PROYECTOS DE FSAS TECHNOLOGIES\n"
     "Esta herramienta es de uso interno y está destinada exclusivamente a proyectos de Fsas Technologies. "
     "No está permitida su distribución ni su uso fuera de ese ámbito.\n\n"
@@ -23,7 +25,7 @@ DISCLAIMER = (
     "SIN GARANTÍA\n"
     "Se proporciona \"tal cual\", sin garantía de ningún tipo. Revisa los datos antes de usarlos en entregables."
 )
-SHORT_NOTICE = "Uso exclusivo para proyectos de Fsas Technologies · Ejecución local, sin envío de datos a la nube"
+SHORT_NOTICE = N_("Uso exclusivo para proyectos de Fsas Technologies · Ejecución local, sin envío de datos a la nube")
 
 
 def asset_path(name: str) -> str:

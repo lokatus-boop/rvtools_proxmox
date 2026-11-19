@@ -8,6 +8,7 @@ import csv
 import glob
 import os
 
+from pvetools.i18n import _, data_in, guess_lang, rows_in
 from pvetools.schema import FORMAT_VERSION, SCHEMA
 
 REQUIRED = ("vInfo",)
@@ -46,7 +47,7 @@ def num(v, default=None):
 
 
 def yes(v) -> bool:
-    return str(v or "").strip().lower() in ("sí", "si", "yes", "true", "1")
+    return str(v or "").strip().lower() in ("sí", "si", "yes", "true", "1", "ja", "oui", "sim", "sì")
 
 
 def _clean(v):
@@ -64,9 +65,9 @@ def read_xlsx(path: str) -> dict:
     except (zipfile.BadZipFile, OSError, KeyError) as e:
         with open(path, "rb") as f:
             head = f.read(4096)
-        why = ("está vacío (solo contiene ceros): no llegó a guardarse bien o se dañó al copiarlo/sincronizarlo"
-               if not head.strip(b"\0") else "no es un Excel válido o está dañado")
-        raise InventoryError(f"{os.path.basename(path)} {why}. Vuelve a exportarlo desde PVE Inventory. ({e})") from e
+        why = (_("está vacío (solo contiene ceros): no llegó a guardarse bien o se dañó al copiarlo/sincronizarlo")
+               if not head.strip(b"\0") else _("no es un Excel válido o está dañado"))
+        raise InventoryError(_("{basename} {why}. Vuelve a exportarlo desde PVE Inventory. ({e})", basename=os.path.basename(path), why=why, e=e)) from e
     sheets = {}
     for ws in wb.worksheets:
         if ws.title not in SCHEMA:
@@ -77,7 +78,7 @@ def read_xlsx(path: str) -> dict:
         except StopIteration:
             sheets[ws.title] = []
             continue
-        if header and header[0] == "(sin datos)":
+        if header and data_in(header[0]) == "(sin datos)":
             sheets[ws.title] = []
             continue
         data = []
@@ -87,7 +88,7 @@ def read_xlsx(path: str) -> dict:
             data.append({h: _clean(c) for h, c in zip(header, row) if h})
         sheets[ws.title] = data
     wb.close()
-    return sheets
+    return _normalize(sheets)
 
 
 def read_csv_folder(folder: str) -> dict:
@@ -103,10 +104,16 @@ def read_csv_folder(folder: str) -> dict:
             f.seek(0)
             delim = ";" if sample.count(";") >= sample.count(",") else ","
             rows = [{k.strip(): _clean(v) for k, v in r.items() if k} for r in csv.DictReader(f, delimiter=delim)]
-        if rows and list(rows[0].keys()) == ["(sin datos)"]:
+        if rows and len(rows[0]) == 1 and data_in(list(rows[0].keys())[0]) == "(sin datos)":
             rows = []
         sheets.setdefault(name, []).extend(rows)
-    return sheets
+    return _normalize(sheets)
+
+
+def _normalize(sheets: dict) -> dict:
+    """Un export en inglés, alemán, francés, portugués o italiano se pasa a la forma interna (castellano)."""
+    lang = guess_lang({h for rows in sheets.values() for h in (rows[0].keys() if rows else ())})
+    return {k: rows_in(k, v, lang) for k, v in sheets.items()}
 
 
 def load(paths) -> dict:
@@ -122,14 +129,14 @@ def load(paths) -> dict:
         elif p.lower().endswith(".csv"):
             sh = read_csv_folder(os.path.dirname(os.path.abspath(p)))
         else:
-            raise InventoryError(f"Formato no reconocido: {p} (usa el Excel o la carpeta de CSV de PVE Inventory)")
+            raise InventoryError(_("Formato no reconocido: {p} (usa el Excel o la carpeta de CSV de PVE Inventory)", p=p))
         if not sh:
-            raise InventoryError(f"{os.path.basename(p)} no contiene hojas de PVE Inventory")
+            raise InventoryError(_("{basename} no contiene hojas de PVE Inventory", basename=os.path.basename(p)))
         for k, v in sh.items():
             merged.setdefault(k, []).extend(v)
     missing = [s for s in REQUIRED if s not in merged]
     if missing:
-        raise InventoryError("Falta la hoja " + ", ".join(missing) + ": ¿es un export de PVE Inventory?")
+        raise InventoryError(_("Falta la hoja {sheets}: ¿es un export de PVE Inventory?", sheets=", ".join(missing)))
     for s in SCHEMA:
         merged.setdefault(s, [])
     _dedupe(merged)
@@ -159,21 +166,20 @@ def format_warnings(sheets: dict) -> list[str]:
     warns = []
     versions = {str(r.get("Versión formato")) for r in sheets.get("vSource", []) if r.get("Versión formato")}
     if versions and versions != {str(FORMAT_VERSION)}:
-        warns.append(f"El inventario usa la versión de formato {', '.join(sorted(versions))} y esta herramienta "
-                     f"espera la {FORMAT_VERSION}: revisa los resultados.")
+        warns.append(_("El inventario usa la versión de formato {versions} y esta herramienta espera la {FORMAT_VERSION}: revisa los resultados.", versions=', '.join(sorted(versions)), FORMAT_VERSION=FORMAT_VERSION))
     anon = {str(r.get("Anonimizado") or "") for r in sheets.get("vSource", []) if r.get("Anonimizado")}
     if any(a.startswith("Sí") for a in anon):
-        warns.append("Inventario anonimizado: los nombres (clústeres, nodos, VMs, almacenamientos…) son seudónimos y las "
+        warns.append(_("Inventario anonimizado: los nombres (clústeres, nodos, VMs, almacenamientos…) son seudónimos y las "
                      "IPs están transformadas. El cálculo no cambia; los documentos mostrarán los seudónimos. El cliente "
-                     "puede revertirlos con su fichero de correspondencia (PVE Inventory → «Revertir anonimización»).")
+                     "puede revertirlos con su fichero de correspondencia (PVE Inventory → «Revertir anonimización»)."))
     for s in USEFUL:
         rows = sheets.get(s) or []
         if not rows:
             if s != "vInfo":
-                warns.append(f"La hoja {s} está vacía o no existe: parte del análisis será menos preciso.")
+                warns.append(_("La hoja {s} está vacía o no existe: parte del análisis será menos preciso.", s=s))
             continue
         cols = set(rows[0].keys())
         miss = [c for c in SCHEMA[s] if c not in cols]
         if miss:
-            warns.append(f"En {s} faltan columnas: {', '.join(miss[:6])}{'…' if len(miss) > 6 else ''}")
+            warns.append(_("En {s} faltan columnas: {miss}", s=s, miss=', '.join(miss[:6]) + ('…' if len(miss) > 6 else '')))
     return warns
