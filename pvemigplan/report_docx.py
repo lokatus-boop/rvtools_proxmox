@@ -67,7 +67,10 @@ class Doc:
             hp.add_run().add_picture(asset_path("fsas_logo_small.png"), height=Cm(0.8))
         except Exception:  # noqa: BLE001
             hp.add_run(COMPANY).bold = True
-        r = hp.add_run(f"\t\t{self.TITLE} · {self.client}")
+        title = self.TITLE
+        if title == Doc.TITLE and self.plan is not None and not getattr(self.plan, "migrate", True):
+            title = "Diseño de la plataforma Proxmox VE"
+        r = hp.add_run(f"\t\t{title} · {self.client}")
         r.font.size, r.font.color.rgb = Pt(8), GREY
         fp = sec.footer.paragraphs[0]
         fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -239,6 +242,7 @@ class Doc:
         st = sc["almacenamiento"]["tipo"]
         e = plan.eval
         cap = sc["capacidad"]
+        load, mig = plan.has_load, plan.migrate
 
         # Portada
         try:
@@ -247,8 +251,11 @@ class Doc:
             self.p(COMPANY, bold=True, size=20, color=BRAND)
         for _ in range(5):
             self.d.add_paragraph()
-        self.p(sc.get("proyecto") or "Plan de migración a Proxmox VE", bold=True, size=24, color=BRAND)
-        self.p(f"Diseño de la nueva plataforma Proxmox VE {sc['pve_version']} y plan de migración", size=14, color=GREY)
+        title = sc.get("proyecto") or ""
+        if not title or (not mig and title == DEFAULT_TITLE):
+            title = "Plan de migración a Proxmox VE" if mig else "Nueva plataforma Proxmox VE"
+        self.p(title, bold=True, size=24, color=BRAND)
+        self.p(f"Diseño de la nueva plataforma Proxmox VE {sc['pve_version']}" + (" y plan de migración" if mig else ""), size=14, color=GREY)
         self.d.add_paragraph()
         self.p(f"Cliente: {sc.get('cliente') or '—'}", size=12)
         self.p(f"Fecha: {plan.generated:%d/%m/%Y}", size=12)
@@ -258,31 +265,41 @@ class Doc:
             self.p(f"Preparado por: {COMPANY}", size=12)
         for _ in range(6):
             self.d.add_paragraph()
-        self.p("Documento confidencial. Las capacidades y configuraciones son estimaciones basadas en el inventario "
-               "facilitado y en los supuestos descritos; deben validarse antes de la implantación.", italic=True, size=8.5, color=GREY)
+        self.p("Documento confidencial. Las capacidades y configuraciones son estimaciones basadas en "
+               + ("el inventario facilitado" if load else "el hardware indicado") + " y en los supuestos descritos; deben validarse "
+               "antes de la implantación.", italic=True, size=8.5, color=GREY)
         self.page_break()
 
         # 1. Resumen ejecutivo
-        self.h("1. Resumen ejecutivo")
-        self.p(f"Se ha analizado el inventario de la plataforma Proxmox VE actual ({s['clusters_origen']} clúster(es) o nodos "
-               f"independientes, {s['hosts_origen']} servidores) con {s['vms']} máquinas virtuales y {s['cts']} contenedores. "
-               + ("A partir de él se propone el hardware necesario para la nueva plataforma, " if sc["modo"] == "aconsejar"
-                  else "Se ha validado el hardware previsto para la nueva plataforma, ")
-               + "el diseño de red y almacenamiento" + (", la solución de copias de seguridad con Proxmox Backup Server" if plan.pbs else "")
-               + " y un plan de migración por olas.")
+        num = iter(range(1, 50))
+        self.h(f"{next(num)}. Resumen ejecutivo")
+        if load:
+            self.p(f"Se ha analizado el inventario de la plataforma Proxmox VE actual ({s['clusters_origen']} clúster(es) o nodos "
+                   f"independientes, {s['hosts_origen']} servidores) con {s['vms']} máquinas virtuales y {s['cts']} contenedores. "
+                   + ("A partir de él se propone el hardware necesario para la nueva plataforma, " if sc["modo"] == "aconsejar"
+                      else "Se ha validado el hardware previsto para la nueva plataforma, ")
+                   + "el diseño de red y almacenamiento" + (", la solución de copias de seguridad con Proxmox Backup Server" if plan.pbs else "")
+                   + (" y un plan de migración por olas." if mig else ". Este documento no incluye migración: describe la nueva plataforma."))
+        else:
+            self.p("Este documento describe el diseño de la nueva plataforma Proxmox VE: hardware, red, almacenamiento"
+                   + (", copias de seguridad con Proxmox Backup Server" if plan.pbs else "")
+                   + " y su puesta en marcha. No incluye migración de máquinas virtuales.")
         n0 = plan.nodes[0]["spec"]
         pairs = [
-            ("Carga a migrar", f"{s['vms']} VMs + {s['cts']} CTs · {s['vcpu']:.0f} vCPU · {s['ram_gib']:.0f} GiB RAM · {s['disk_eff_tib']:.1f} TiB de datos"),
+            ("Carga a migrar" if mig else "Carga prevista", f"{s['vms']} VMs + {s['cts']} CTs · {s['vcpu']:.0f} vCPU · {s['ram_gib']:.0f} GiB RAM · {s['disk_eff_tib']:.1f} TiB de datos"),
             ("Plataforma propuesta", f"Clúster Proxmox VE {sc['pve_version']} de {s['nodos']} nodos ({n0.model}" + (f", {n0.reference}" if n0.reference else "") + ")"),
             ("Capacidad total", f"{s['cores']} cores físicos · {s['ram_dest_gib']:,} GiB RAM · {s['util_tib']:.1f} TiB útiles".replace(",", ".")),
             ("Almacenamiento", s["almacenamiento"]),
             ("Ocupación prevista", f"CPU {s['cpu_pct']:.0f} % · RAM {s['ram_pct']:.0f} % (con un nodo caído: CPU {s['cpu_pct_n1']:.0f} % · RAM {s['ram_pct_n1']:.0f} %)"),
             ("Alta disponibilidad", f"N+{cap['n_mas']}: el servicio continúa con {cap['n_mas']} nodo(s) fuera de servicio"),
         ]
+        if not load:
+            pairs = [x for x in pairs if x[0] not in ("Carga prevista", "Ocupación prevista")]
         if plan.pbs:
             pairs.append(("Copias de seguridad", f"Proxmox Backup Server {s['pbs_ver']} · {plan.pbs['util_necesario_gib'] / 1024:.1f} TiB útiles"
                                                   + (" · copia externa sincronizada" if sc["pbs"].get("offsite") else "")))
-        pairs.append(("Migración", f"{plan.method['nombre']} · {s['olas']} olas" + (f" · ~{s['semanas']} semanas" if s.get("semanas") else "")))
+        if mig:
+            pairs.append(("Migración", f"{plan.method['nombre']} · {s['olas']} olas" + (f" · ~{s['semanas']} semanas" if s.get("semanas") else "")))
         pairs.append(("Suscripciones Proxmox VE", f"{s['suscripciones_pve']} (se licencian por socket de CPU)"
                                                    + (" + 1 Proxmox Backup Server" if plan.pbs else "")))
         self.kv(pairs)
@@ -292,9 +309,64 @@ class Doc:
         self.img(charts, "destino_arquitectura", 16.5, "Arquitectura propuesta")
         self.page_break()
 
-        # 2. Situación actual
-        self.h("2. Situación actual")
+        # 2. Situación actual (solo si hay carga en el inventario)
         t = plan.an.totals()
+        if load:
+            self._current(plan, charts, t, next(num))
+
+        # 3. Requisitos
+        self._requirements(plan, charts, e, cap, st, next(num))
+
+        # 4. Hardware
+        self._hardware(plan, charts, sc, next(num))
+
+        # 5. Red
+        self._network(plan, charts, next(num))
+
+        # 6. Almacenamiento
+        self._storage(plan, sc, e, st, next(num))
+
+        # 7. PBS
+        if plan.pbs:
+            self._pbs(plan, charts, sc, s, next(num))
+        self.page_break()
+
+        if mig:
+            self._migration(plan, charts, sc, next(num))
+        else:
+            self._startup(plan, next(num))
+
+        # Riesgos
+        self._risks(plan, charts, next(num))
+
+        # Anexos
+        if load:
+            self.page_break()
+            self.h("Anexo A. Ubicación inicial de las VMs" if mig else "Anexo A. Reparto previsto de la carga")
+            rows = []
+            for g in sorted(plan.an.guests, key=lambda g: (plan.placement.get(g.key) or "", g.name.lower())):
+                row = [g.name, g.vmid, g.kind, round(g.vcpu), round(g.ram_gib, 1), round(g.disk_effective_gib), plan.placement.get(g.key)]
+                if mig:
+                    row.append(next((w["nombre"] for w in plan.waves if g in w["guests"]), ""))
+                rows.append(row)
+            self.table(["Nombre", "VMID", "Tipo", "vCPU", "RAM (GiB)", "Disco (GiB)", "Nodo destino"] + (["Ola"] if mig else []), rows, size=7.5)
+        self.h(("Anexo B. " if load else "Anexo. ") + "Supuestos y limitaciones", 2)
+        self.bullets(([
+            "El inventario es una foto en un instante: el uso de CPU y memoria debe confirmarse con métricas de varias semanas."] if load else [])
+            + ["Los modelos y configuraciones de servidor son orientativos y deben validarse con el configurador del fabricante."]
+            + (["Los tiempos de migración dependen del rendimiento real de red y almacenamiento; la ola piloto permite ajustarlos."] if mig else [])
+            + ["Documento generado " + ("a partir del inventario de PVE Inventory " if load else "") + f"el {plan.generated:%d/%m/%Y}."])
+        path = atomic_save(path, self.d.save)
+        for f in ([] if charts_dir else charts.values()):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        return path
+
+    # ------------------------------------------------------------------ secciones
+    def _current(self, plan, charts, t, n):
+        self.h(f"{n}. Situación actual")
         self.p(f"El inventario incluye {len(plan.an.all_guests)} VMs/CTs; quedan dentro del alcance {len(plan.an.guests)} "
                f"({t['running']} encendidas y {t['stopped']} apagadas)"
                + (f"; {t['excluded']} se han excluido (plantillas, apagadas o exclusiones manuales)." if t["excluded"] else "."))
@@ -313,8 +385,24 @@ class Doc:
             self.p(f"Estado de salud del entorno actual: {hc.get('CRÍTICO', 0)} avisos críticos y {hc.get('AVISO', 0)} avisos.")
         self.page_break()
 
-        # 3. Requisitos
-        self.h("3. Requisitos de capacidad")
+    def _requirements(self, plan, charts, e, cap, st, n):
+        if not plan.has_load:
+            self.h(f"{n}. Capacidad de la plataforma")
+            self.p("No hay carga de VMs/CTs que dimensionar: se indica la capacidad que ofrece la plataforma con los criterios de "
+                   f"ocupación (CPU {cap['cpu_max_pct']} %, RAM {cap['ram_max_pct']} %) y tolerancia a fallos N+{cap['n_mas']}.")
+            self.table(["Recurso", "Total", "Con nodo caído"], [
+                ["CPU (cores físicos)", e["cores"], e["cores_n1"]],
+                ["vCPU recomendadas (ratio " + f"{cap['ratio_vcpu_core']:g}:1, ocupación máx.)",
+                 round(e["cores"] * cap["ratio_vcpu_core"] * cap["cpu_max_pct"] / 100),
+                 round(e["cores_n1"] * cap["ratio_vcpu_core"] * cap["cpu_max_pct"] / 100)],
+                ["RAM para VMs (GiB)", round(e["ram_util_gib"]), round(e["ram_n1_gib"])],
+                ["Almacenamiento útil (TiB)", round(e["almacenamiento_util_gib"] / 1024, 1), round(e["almacenamiento_util_gib"] / 1024, 1)],
+            ])
+            if e["avisos"]:
+                self.p("Observaciones:", bold=True)
+                self.bullets(e["avisos"])
+            return
+        self.h(f"{n}. Requisitos de capacidad")
         self.p("Las necesidades se calculan con los siguientes criterios:")
         self.kv([
             ("Crecimiento previsto", f"{cap['crecimiento_pct']} %"),
@@ -337,8 +425,8 @@ class Doc:
             self.p("Observaciones:", bold=True)
             self.bullets(e["avisos"])
 
-        # 4. Hardware
-        self.h("4. Plataforma propuesta")
+    def _hardware(self, plan, charts, sc, n):
+        self.h(f"{n}. Plataforma propuesta")
         if plan.options:
             self.p("Se han evaluado distintas configuraciones de servidor. La opción 1 es la recomendada por equilibrio entre "
                    "capacidad, número de nodos y número de sockets (las suscripciones de Proxmox VE se licencian por socket). "
@@ -363,13 +451,14 @@ class Doc:
                      ("Red", ", ".join(f"{x['puertos']}× {x['gbps']:g} {'Gb FC' if x.get('uso') == 'fc' else 'GbE'} ({USO_LABEL.get(x.get('uso'), x.get('uso', ''))})"
                              for x in spec.nics) + " + iRMC 1 GbE"),
                      ("Software", f"Proxmox VE {sc['pve_version']} con suscripción (repositorio enterprise y soporte)")])
-        self.img(charts, "destino_reparto", 15, "Reparto inicial de la carga entre los nodos")
+        if plan.has_load:
+            self.img(charts, "destino_reparto", 15, "Reparto inicial de la carga entre los nodos")
         self.page_break()
 
-        # 5. Red
+    def _network(self, plan, charts, n):
         net = plan.net
         self.orientation(True)
-        self.h("5. Diseño de red")
+        self.h(f"{n}. Diseño de red")
         self.p("Cada nodo separa el tráfico por función y reparte sus puertos entre dos switches (A/B) para que la caída de un "
                "switch, un puerto o un cable no afecte al servicio. La gestión fuera de banda (iRMC) va a un switch independiente.")
         self.img(charts, "destino_red", 24.5, "Esquema físico de red: switches, equipos y puertos por red")
@@ -424,6 +513,9 @@ class Doc:
             if notes:
                 self.bullets(notes)
             self.sdn_tables(an, level=4)
+        elif not plan.vlan_map:
+            self.p("Se propone definir las redes de las VMs como una zona SDN de tipo VLAN sobre vmbr1, con una VNet por cada "
+                   "VLAN de servicio acordada con el cliente, para que se definan una sola vez para todo el clúster.")
         else:
             self.p("El entorno actual no tiene SDN configurado: las VMs se conectan directamente a los bridges de cada nodo. "
                    "En el nuevo clúster se propone una zona SDN de tipo VLAN con una VNet por cada VLAN de la tabla anterior, "
@@ -432,8 +524,8 @@ class Doc:
         if subnets:
             self.p("Subredes de los servidores actuales (referencia para el plan de direccionamiento): " + ", ".join(subnets[:20]) + ".")
 
-        # 6. Almacenamiento
-        self.h("6. Almacenamiento")
+    def _storage(self, plan, sc, e, st, n):
+        self.h(f"{n}. Almacenamiento")
         self.p(STORAGE_TYPES.get(st, st) + ".", bold=True)
         if st == "ceph":
             self.bullets([
@@ -468,39 +560,52 @@ class Doc:
             self.p("Origen de los discos de las VMs por tipo de almacenamiento actual: "
                    + ", ".join(f"{k}: {v / 1024:.1f} TiB" for k, v in sorted(bt.items(), key=lambda kv: -kv[1])) + ".")
 
-        # 7. PBS
-        if plan.pbs:
-            p = plan.pbs
-            self.h("7. Copias de seguridad con Proxmox Backup Server")
-            ret = sc["pbs"]["retencion"]
-            self.p(f"Se incorpora un servidor Proxmox Backup Server {s['pbs_ver']} dedicado. Realiza copias incrementales "
-                   "deduplicadas y comprimidas, verificación periódica, cifrado opcional y restauración de ficheros individuales.")
-            self.kv([
-                ("Retención", f"{ret['diaria']} diarias, {ret['semanal']} semanales, {ret['mensual']} mensuales"
-                              + (f", {ret['anual']} anuales" if ret.get("anual") else "")),
-                ("Datos protegidos", f"{p['datos_origen_gib'] / 1024:.1f} TiB"),
-                ("Capacidad útil del datastore", f"{p['util_necesario_gib'] / 1024:.1f} TiB "
-                                                 f"(cambio diario {sc['pbs']['cambio_diario_pct']:g} %, reducción {sc['pbs']['reduccion']:g})"),
-                ("Servidor", (sc["pbs"]["hardware"].get("modelo") + " · " if sc["pbs"]["hardware"].get("definido") else "")
-                 + f"{p['propuesta']['cores']} cores · {p['propuesta']['ram_gib']} GiB RAM"),
-                ("Discos", f"{sc['pbs']['hardware'].get('capacidad_util_tib')} TiB útiles ({sc['pbs']['hardware'].get('discos') or 'según configuración'})"
-                 if sc["pbs"]["hardware"].get("definido") else p["propuesta"]["discos"]),
-                ("Red", p["propuesta"]["red"]),
-                ("Ventana de backup", f"Primera copia completa ~{p['horas_full']:.0f} h; incrementales diarias ~{max(p['horas_incremental'], 0.1):.1f} h"),
-            ])
+    def _pbs(self, plan, charts, sc, s, n):
+        p = plan.pbs
+        self.h(f"{n}. Copias de seguridad con Proxmox Backup Server")
+        ret = sc["pbs"]["retencion"]
+        self.p(f"Se incorpora un servidor Proxmox Backup Server {s['pbs_ver']} dedicado. Realiza copias incrementales "
+               "deduplicadas y comprimidas, verificación periódica, cifrado opcional y restauración de ficheros individuales.")
+        load = plan.has_load
+        self.kv([
+            ("Retención", f"{ret['diaria']} diarias, {ret['semanal']} semanales, {ret['mensual']} mensuales"
+                          + (f", {ret['anual']} anuales" if ret.get("anual") else "")),
+            ("Datos protegidos", f"{p['datos_origen_gib'] / 1024:.1f} TiB" if load else "Las VMs que se desplieguen en la nueva plataforma"),
+            ("Capacidad útil del datastore", (f"{p['util_necesario_gib'] / 1024:.1f} TiB "
+                                              f"(cambio diario {sc['pbs']['cambio_diario_pct']:g} %, reducción {sc['pbs']['reduccion']:g})")
+             if load else f"{p['util_necesario_gib'] / 1024:.1f} TiB" + ("" if p.get("definido") else
+                                                                         " (configuración mínima; ampliar según la carga prevista)")),
+            ("Servidor", (sc["pbs"]["hardware"].get("modelo") + " · " if sc["pbs"]["hardware"].get("definido") else "")
+             + f"{p['propuesta']['cores']} cores · {p['propuesta']['ram_gib']} GiB RAM"),
+            ("Discos", f"{sc['pbs']['hardware'].get('capacidad_util_tib')} TiB útiles ({sc['pbs']['hardware'].get('discos') or 'según configuración'})"
+             if sc["pbs"]["hardware"].get("definido") else p["propuesta"]["discos"]),
+            ("Red", p["propuesta"]["red"]),
+        ] + ([("Ventana de backup", f"Primera copia completa ~{p['horas_full']:.0f} h; incrementales diarias ~{max(p['horas_incremental'], 0.1):.1f} h")]
+              if load else []))
+        if load:
             self.img(charts, "pbs_capacidad", 15, "Ocupación estimada del datastore")
-            extra = ["Jobs de backup diarios fuera de horario, verificación semanal y prune/garbage collection automáticos.",
-                     "Notificaciones por correo de errores de backup y verificación.",
-                     "Restauración «live-restore»: la VM arranca mientras se restaura desde el PBS."]
-            if sc["pbs"].get("offsite"):
-                extra.append("Segundo PBS en otra ubicación con sincronización (sync job) para cumplir la regla 3-2-1.")
-            else:
-                extra.append("Recomendado: copia fuera del CPD (segundo PBS con sync job o cinta LTO) para cumplir la regla 3-2-1.")
-            self.bullets(extra)
-        self.page_break()
+        extra = ["Jobs de backup diarios fuera de horario, verificación semanal y prune/garbage collection automáticos.",
+                 "Notificaciones por correo de errores de backup y verificación.",
+                 "Restauración «live-restore»: la VM arranca mientras se restaura desde el PBS."]
+        if sc["pbs"].get("offsite"):
+            extra.append("Segundo PBS en otra ubicación con sincronización (sync job) para cumplir la regla 3-2-1.")
+        else:
+            extra.append("Recomendado: copia fuera del CPD (segundo PBS con sync job o cinta LTO) para cumplir la regla 3-2-1.")
+        self.bullets(extra)
 
-        # 8. Migración
-        sec = 8 if plan.pbs else 7
+    def _startup(self, plan, n):
+        self.h(f"{n}. Puesta en marcha")
+        self.p("No se migran máquinas virtuales: la plataforma se entrega instalada, configurada y probada.")
+        self.numbered([
+            "Preparación: instalación del hardware, cableado y configuración de los switches.",
+            "Instalación de Proxmox VE en todos los nodos, creación del clúster, red y almacenamiento"
+            + (", y del Proxmox Backup Server" if plan.pbs else "") + ".",
+            "Pruebas de aceptación: alta disponibilidad, caída de enlaces y switches, rendimiento"
+            + (", backup y restauración" if plan.pbs else "") + ".",
+            "Entrega: documentación as-built (generada con PVE Inventory sobre el nuevo entorno) y traspaso a postventa.",
+        ])
+
+    def _migration(self, plan, charts, sc, sec):
         self.h(f"{sec}. Plan de migración")
         self.p(plan.method["nombre"] + ".", bold=True)
         self.numbered(plan.method["pasos"])
@@ -525,47 +630,36 @@ class Doc:
         self.p("Las VMs de origen no se eliminan hasta el cierre de cada ola: si una VM no funciona correctamente en destino, "
                "se apaga y se vuelve a arrancar la original. Los cambios de datos realizados en destino durante ese tiempo se evalúan caso a caso.")
 
-        # 9. Riesgos
-        self.h(f"{sec + 1}. Riesgos y puntos a revisar")
-        self.img(charts, "riesgos", 14.5, "Puntos a revisar por categoría")
+    def _risks(self, plan, charts, n):
+        mig = plan.migrate
+        self.h(f"{n}. Riesgos y puntos a revisar")
+        if plan.has_load:
+            self.img(charts, "riesgos", 14.5, "Puntos a revisar por categoría")
         bl = [r for r in plan.issues if r["Severidad"] == "BLOQUEO"]
         av = [r for r in plan.issues if r["Severidad"] == "AVISO"]
         if bl:
-            self.p("Bloqueos (resolver antes de migrar):", bold=True)
+            self.p("Bloqueos (resolver antes de migrar):" if mig else "Bloqueos (resolver antes de la implantación):", bold=True)
             self.table(["VM", "Categoría", "Detalle"], [[f"{r['Nombre']} ({r['VMID']})" if r["VMID"] else r["Clúster"], r["Categoría"], r["Detalle"]]
                                                        for r in bl[:40]], size=8)
         if av:
             from collections import Counter
             c = Counter(r["Categoría"] for r in av)
-            self.p("Avisos más frecuentes: " + ", ".join(f"{k} ({v})" for k, v in c.most_common()) + ". El detalle por VM está en el Excel del plan.")
-        self.bullets([
-            "Compatibilidad de CPU: usar un tipo de CPU virtual genérico (x86-64-v2-AES / v3) si cambia la generación o el fabricante.",
-            "Licencias de software que dependan del hardware (MAC, UUID, número de cores): revisar con los fabricantes.",
-            "Coordinar con los responsables de cada aplicación las ventanas de parada y las pruebas de validación.",
-        ])
+            self.p("Avisos más frecuentes: " + ", ".join(f"{k} ({v})" for k, v in c.most_common()) + ". El detalle está en el Excel del plan.")
+        if mig:
+            self.bullets([
+                "Compatibilidad de CPU: usar un tipo de CPU virtual genérico (x86-64-v2-AES / v3) si cambia la generación o el fabricante.",
+                "Licencias de software que dependan del hardware (MAC, UUID, número de cores): revisar con los fabricantes.",
+                "Coordinar con los responsables de cada aplicación las ventanas de parada y las pruebas de validación.",
+            ])
+        else:
+            self.bullets([
+                "Confirmar con el cliente direccionamiento IP, VLANs, DNS, NTP y la configuración de los switches antes de la instalación.",
+                "Usar un tipo de CPU virtual genérico (x86-64-v2-AES / v3) si en el futuro se añaden nodos de otra generación.",
+                "Validar el rendimiento y la alta disponibilidad con las pruebas de aceptación antes de alojar servicios productivos.",
+            ])
 
-        # Anexo
-        self.page_break()
-        self.h("Anexo A. Ubicación inicial de las VMs")
-        rows = []
-        for g in sorted(plan.an.guests, key=lambda g: (plan.placement.get(g.key) or "", g.name.lower())):
-            wave = next((w["nombre"] for w in plan.waves if g in w["guests"]), "")
-            rows.append([g.name, g.vmid, g.kind, round(g.vcpu), round(g.ram_gib, 1), round(g.disk_effective_gib), plan.placement.get(g.key), wave])
-        self.table(["Nombre", "VMID", "Tipo", "vCPU", "RAM (GiB)", "Disco (GiB)", "Nodo destino", "Ola"], rows, size=7.5)
-        self.h("Anexo B. Supuestos y limitaciones", 2)
-        self.bullets([
-            "El inventario es una foto en un instante: el uso de CPU y memoria debe confirmarse con métricas de varias semanas.",
-            "Los modelos y configuraciones de servidor son orientativos y deben validarse con el configurador del fabricante.",
-            "Los tiempos de migración dependen del rendimiento real de red y almacenamiento; la ola piloto permite ajustarlos.",
-            f"Documento generado a partir del inventario de PVE Inventory el {plan.generated:%d/%m/%Y}.",
-        ])
-        path = atomic_save(path, self.d.save)
-        for f in ([] if charts_dir else charts.values()):
-            try:
-                os.remove(f)
-            except OSError:
-                pass
-        return path
+
+DEFAULT_TITLE = "Migración a nueva plataforma Proxmox VE"
 
 
 def to_docx(plan, path, charts_dir=None):

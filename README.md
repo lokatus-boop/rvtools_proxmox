@@ -178,4 +178,6 @@ python tools/gen_format_doc.py     # regenera docs/FORMATO_EXPORTACION.md tras c
 
 En la carpeta `pvemigplan/` está **PVE Migration Planner**, una aplicación aparte (no se envía al cliente) que lee el Excel/CSV
 de esta herramienta y genera el diseño de la nueva plataforma y el plan de migración en Excel y Word. También tiene un modo
-**solo análisis** que genera un informe de la infraestructura actual (con gráficos y hallazgos) sin proponer migración. Ver [docs/PLANIFICADOR.md](docs/PLANIFICADOR.md).
+**solo análisis** que genera un informe de la infraestructura actual (con gráficos y hallazgos) sin proponer migración,
+puede generar los documentos de un **clúster nuevo sin migración** (sin inventario o con un inventario sin VMs) y guarda el
+trabajo como **proyecto** (`.pveplan`, con el inventario dentro) para retomarlo más tarde. Ver [docs/PLANIFICADOR.md](docs/PLANIFICADOR.md).

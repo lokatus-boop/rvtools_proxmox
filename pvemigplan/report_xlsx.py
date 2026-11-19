@@ -76,7 +76,7 @@ def _notice(ws, plan):
         row = 3
     except Exception:  # noqa: BLE001
         pass
-    ws.cell(row, 1, f"{APP_NAME} {__version__} — Plan de migración a Proxmox VE · {COMPANY}").font = Font(bold=True, size=14)
+    ws.cell(row, 1, f"{APP_NAME} {__version__} — " + ("Plan de migración a" if plan.migrate else "Diseño de la nueva plataforma") + f" Proxmox VE · {COMPANY}").font = Font(bold=True, size=14)
     ws.cell(row + 1, 1, f"Cliente: {plan.sc.get('cliente') or '-'} · Generado: {plan.generated:%Y-%m-%d %H:%M}").font = Font(italic=True, color="666666")
     r = row + 3
     for line in DISCLAIMER.split("\n"):
@@ -151,7 +151,8 @@ def to_xlsx(plan, path):
         ("Reserva de RAM por nodo", "8 GiB Proxmox VE + 5 GiB por OSD y 4 GiB MON/MGR (Ceph) o ARC de ZFS"),
         ("Red", f"{plan.sc['red']['velocidad_gbps']} GbE · jumbo frames: {'sí' if plan.sc['red'].get('jumbo', True) else 'no'}"),
         ("Migración", f"{plan.method['nombre']} · {plan.sc['migracion']['mbps_por_flujo']} MB/s × {plan.sc['migracion']['flujos']} flujos · "
-                      f"máx. {plan.sc['migracion']['max_vms_ola']} VMs / {plan.sc['migracion']['max_gib_ola']} GiB por ola"),
+                      f"máx. {plan.sc['migracion']['max_vms_ola']} VMs / {plan.sc['migracion']['max_gib_ola']} GiB por ola"
+         if plan.migrate else "No incluida: solo se documenta la nueva plataforma"),
     ] + ([("PBS", f"Retención {plan.sc['pbs']['retencion']} · cambio diario {plan.sc['pbs']['cambio_diario_pct']} % · "
                   f"reducción {plan.sc['pbs']['reduccion']} · llenado máx. {plan.sc['pbs']['llenado_max_pct']} %")] if plan.pbs else []),
         title="Supuestos de cálculo")
@@ -178,7 +179,8 @@ def to_xlsx(plan, path):
          "Disponible N-1": round(e["almacenamiento_util_gib"] / 1024, 2), "Ocupación %": round(e["alm_pct_real"], 1),
          "Ocupación N-1 %": round(e["alm_pct_real"], 1), "Objetivo %": st["llenado_max_pct"]},
     ] + [{"Recurso": "Problema", "Necesario": p} for p in e["problemas"]] + [{"Recurso": "Aviso", "Necesario": a} for a in e["avisos"]])
-    _table(wb, "Ubicación VMs", placement_rows(plan))
+    if plan.has_load:
+        _table(wb, "Ubicación VMs", placement_rows(plan))
     _table(wb, "Redes", [{"Red": n["red"], "Interfaz": n["interfaz"], "Puertos por nodo": n["puertos"], "Modo": n["modo"],
                           "VLAN": n["vlan"], "MTU": n["mtu"], "Notas": n["nota"]} for n in plan.networks])
     _table(wb, "VLANs", plan.vlan_map)
@@ -219,14 +221,20 @@ def to_xlsx(plan, path):
             rows.append({"Concepto": "PBS indicado: ocupación prevista (%)", "Valor": round(p["definido"]["pct"], 1)})
         rows += [{"Concepto": "Aviso", "Valor": a} for a in p["avisos"]]
         _table(wb, "PBS", rows)
+    if plan.migrate:
+        _waves(wb, plan)
+    _table(wb, "Riesgos", plan.issues)
+    if plan.an.by_cluster():
+        _table(wb, "Origen", plan.an.by_cluster())
+    path = atomic_save(path, wb.save)
+    return path
+
+
+def _waves(wb, plan):
     _table(wb, "Olas", [{"Ola": w["nombre"], "Tipo": w["tipo"], "Fecha": w["fecha"].isoformat() if w.get("fecha") else f"Día {w['dia']}",
                          "VMs": len(w["guests"]), "vCPU": w["vcpu"], "RAM (GiB)": round(w["ram"]), "Datos (GiB)": round(w["gib"]),
                          "Transferencia estimada (h)": round(w["horas"], 1)} for w in plan.waves])
     _table(wb, "Olas detalle", wave_rows(plan))
-    _table(wb, "Riesgos", plan.issues)
-    _table(wb, "Origen", plan.an.by_cluster())
-    path = atomic_save(path, wb.save)
-    return path
 
 
 __all__ = ["to_xlsx", "TB_TO_GIB"]

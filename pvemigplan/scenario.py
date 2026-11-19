@@ -20,6 +20,7 @@ DEFAULT = {
     "proyecto": "Migración a nueva plataforma Proxmox VE",
     "autor": "",
     "modo": "aconsejar",            # aconsejar | hardware
+    "sin_migracion": False,         # True = solo documentar la nueva plataforma (sin olas ni runbook de migración)
     "pve_version": "9.1",
     "alcance": {"incluir_apagadas": True, "incluir_plantillas": False, "excluir": []},
     "capacidad": {

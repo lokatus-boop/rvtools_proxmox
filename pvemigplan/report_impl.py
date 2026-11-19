@@ -37,21 +37,22 @@ class ImplDoc(Doc):
                    "Documento de trabajo interno. Completar los campos marcados con ________ con los datos acordados con el cliente "
                    "(hoja de configuración). No anotar contraseñas en este documento.")
 
+        num = iter(range(1, 50))
+        mig = plan.migrate
         # 1. Resumen
-        self.h("1. Resumen del diseño")
+        self.h(f"{next(num)}. Resumen del diseño")
         self.kv([
             ("Clúster", f"{imp['cluster']} · {len(plan.nodes)} nodos {spec.model}"),
             ("Versión", f"Proxmox VE {sc['pve_version']}"),
             ("Almacenamiento", STORAGE_TYPES.get(typ, typ) + (f" ({net.proto})" if typ == "san" else "")),
             ("Backup", f"Proxmox Backup Server · {plan.pbs['util_necesario_gib'] / 1024:.1f} TiB útiles" if plan.pbs else "Sin PBS en el alcance"),
             ("Switches", "; ".join(f"{w['tipo']}: {w['cantidad']}× {w['modelo']} ({w['suministra']})" for w in net.switches)),
-            ("Migración", f"{plan.method['nombre']} · {len(plan.waves)} olas"),
-        ])
-        self.p("Documentos relacionados: documento de diseño para el cliente, Excel del plan (hojas «Cableado», «Puertos nodo», "
-               "«Ubicación VMs», «Olas detalle») y hoja de configuración del cliente.", italic=True, color=GREY)
+        ] + [("Migración", f"{plan.method['nombre']} · {len(plan.waves)} olas" if mig else "No incluida (solo implantación de la plataforma)")])
+        self.p("Documentos relacionados: documento de diseño para el cliente, Excel del plan (hojas «Cableado», «Puertos nodo»"
+               + (", «Ubicación VMs», «Olas detalle»" if mig else "") + ") y hoja de configuración del cliente.", italic=True, color=GREY)
 
         # 2. Datos generales
-        self.h("2. Datos generales")
+        self.h(f"{next(num)}. Datos generales")
         self.kv([("Nombre del clúster", imp["cluster"]), ("Patrón de nombres", imp.get("patron_hostname") or "pve{nn}"),
                  ("Dominio DNS", imp.get("dominio") or BLANK), ("Servidores DNS", imp.get("dns") or BLANK),
                  ("Servidores NTP", imp.get("ntp") or BLANK), ("Zona horaria", imp.get("zona_horaria") or "Europe/Madrid"),
@@ -62,7 +63,7 @@ class ImplDoc(Doc):
                    + ([["pbs01"] + [BLANK] * (len(cols) - 1)] if plan.pbs else []), size=8.5)
 
         # 3. Hardware y preparación
-        self.h("3. Hardware y preparación de los servidores")
+        self.h(f"{next(num)}. Hardware y preparación de los servidores")
         self.kv([("Servidor", f"{len(plan.nodes)}× {spec.model}"), ("CPU", spec.cpu_label or f"{spec.sockets}× {spec.cores_per_socket} cores"),
                  ("RAM", f"{spec.ram_gib} GiB"), ("Arranque", spec.boot),
                  ("Discos de datos", f"{spec.data_disks}× {spec.data_disk_tb:g} TB {spec.data_disk_type}" if spec.data_disks else "No"),
@@ -79,7 +80,7 @@ class ImplDoc(Doc):
 
         # 4. Cableado
         self.orientation(True)
-        self.h("4. Cableado y switches")
+        self.h(f"{next(num)}. Cableado y switches")
         if "destino_red" in charts:
             self.img(charts, "destino_red", 24.5, "Esquema físico de red")
         self.orientation(False)
@@ -97,14 +98,14 @@ class ImplDoc(Doc):
             "Switches de servicio en MLAG/stack (o Virtual Chassis); uplinks hacia la red del cliente según lo acordado.",
             "Por cada nodo: LAG LACP (802.3ad, modo activo) con un puerto en cada switch para bond1"
             + (" y bond2" if typ in ("ceph", "nfs") else "") + "; bond0 (gestión) en active-backup sin LAG.",
-            f"VLANs en los LAG de VMs: {vl or 'según inventario'} + migración, corosync 2" + (" y backup" if plan.pbs else "") + ".",
+            f"VLANs en los LAG de VMs: {vl or ('según inventario' if plan.has_load else 'según hoja de configuración')} + migración, corosync 2" + (" y backup" if plan.pbs else "") + ".",
             "MTU 9216 en puertos y LAG con jumbo frames (almacenamiento, migración, backup).",
             "Puertos iRMC en el switch OOB, VLAN de gestión fuera de banda.",
         ] + (["Zoning FC por WWPN (un HBA por fabric) hacia ambas controladoras."] if net.fc else [])
           + (["iSCSI: dos VLANs/subredes independientes, una por switch, sin LAG."] if typ == "san" and not net.fc else []))
 
         # 5. Instalación
-        self.h("5. Instalación de Proxmox VE")
+        self.h(f"{next(num)}. Instalación de Proxmox VE")
         self.checklist([
             f"Instalar Proxmox VE {sc['pve_version']} desde la ISO en cada nodo (ZFS RAID1 en los discos de arranque).",
             "Nombre FQDN y IP de gestión según la tabla de datos generales.",
@@ -116,7 +117,7 @@ class ImplDoc(Doc):
         self.code(self._interfaces(plan, imp))
 
         # 6. Clúster
-        self.h("6. Creación del clúster")
+        self.h(f"{next(num)}. Creación del clúster")
         n1 = plan.nodes[0]["name"]
         self.code(f"# en {n1}\npvecm create {imp['cluster']} --link0 <IP-COROSYNC1-{n1}>" + (f" --link1 <IP-COROSYNC2-{n1}>" if corosync2 else "")
                   + "\n\n# en cada uno de los demás nodos\npvecm add <IP-GESTION-" + n1 + "> --link0 <IP-COROSYNC1-NODO>"
@@ -126,13 +127,13 @@ class ImplDoc(Doc):
                         "Usuarios y roles del cliente (realm LDAP/AD si aplica); 2FA para administradores."])
 
         # 7. Almacenamiento
-        self.h("7. Almacenamiento")
+        self.h(f"{next(num)}. Almacenamiento")
         self.code(self._storage_cmds(plan))
 
         # 8. SDN
         an = plan.an
         if plan.vlan_map or an.has_sdn():
-            self.h("8. Redes de las VMs (SDN)")
+            self.h(f"{next(num)}. Redes de las VMs (SDN)")
             if an.has_sdn():
                 self.p(f"El entorno actual tiene SDN ({an.sdn_summary()}). Se recrea con los mismos nombres, tags/VNI y subredes "
                        "para que las VMs migradas se conecten a la misma VNet. Los valores entre < > se completan con los datos "
@@ -156,7 +157,7 @@ class ImplDoc(Doc):
         if plan.pbs:
             p = plan.pbs
             r = sc["pbs"]["retencion"]
-            self.h("9. Proxmox Backup Server")
+            self.h(f"{next(num)}. Proxmox Backup Server")
             self.kv([("Hardware", f"{p['propuesta']['cores']} cores · {p['propuesta']['ram_gib']} GiB RAM"),
                      ("Datastore", f"{p['util_necesario_gib'] / 1024:.1f} TiB útiles · {p['propuesta']['discos']}"),
                      ("Retención", f"keep-daily={r['diaria']}, keep-weekly={r['semanal']}, keep-monthly={r['mensual']}"
@@ -172,7 +173,27 @@ class ImplDoc(Doc):
                 self.p("Copia externa: segundo PBS con «remote» y «sync job» desde store1.")
 
         # 10. Migración
-        self.h("10. Migración (runbook)")
+        if mig:
+            self._runbook(plan, next(num))
+
+        # 11. Pruebas
+        self._acceptance(plan, typ, next(num))
+
+        # 12. Entrega
+        self.h(f"{next(num)}. Entrega a postventa")
+        self.p("Al terminar, ejecutar PVE Inventory contra el nuevo clúster" + (" y el PBS" if plan.pbs else "")
+               + " y generar con el planificador la documentación «as-built» para el departamento de postventa.")
+        path = atomic_save(path, self.d.save)
+        if not charts_dir:
+            for f in charts.values():
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass
+        return path
+
+    def _runbook(self, plan, n):
+        self.h(f"{n}. Migración (runbook)")
         self.p(plan.method["nombre"] + ".", bold=True)
         self.numbered(plan.method["pasos"])
         self.code(self._migration_cmds(plan))
@@ -189,8 +210,8 @@ class ImplDoc(Doc):
         if ha:
             self.p("Tras migrar, dar de alta en HA: " + ", ".join(f"{g.name} ({g.vmid})" for g in ha[:60]) + ".")
 
-        # 11. Pruebas
-        self.h("11. Pruebas de aceptación")
+    def _acceptance(self, plan, typ, n):
+        self.h(f"{n}. Pruebas de aceptación")
         self.checklist([
             "Quórum y estado del clúster (pvecm status) con los enlaces corosync redundantes.",
             "Caída de un enlace de cada bond y de un switch: sin pérdida de servicio.",
@@ -201,20 +222,6 @@ class ImplDoc(Doc):
           + (["Backup y restauración (completa, de ficheros y live-restore) desde el PBS."] if plan.pbs else [])
           + ["Notificaciones por correo y alertas.", "Entrega de credenciales al cliente por canal seguro."])
 
-        # 12. Entrega
-        self.h("12. Entrega a postventa")
-        self.p("Al terminar, ejecutar PVE Inventory contra el nuevo clúster" + (" y el PBS" if plan.pbs else "")
-               + " y generar con el planificador la documentación «as-built» para el departamento de postventa.")
-        path = atomic_save(path, self.d.save)
-        if not charts_dir:
-            for f in charts.values():
-                try:
-                    os.remove(f)
-                except OSError:
-                    pass
-        return path
-
-    # ------------------------------------------------------------------ fragmentos
     @staticmethod
     def _interfaces(plan, imp):
         net = plan.net

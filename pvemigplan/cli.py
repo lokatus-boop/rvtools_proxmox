@@ -10,12 +10,22 @@ from . import APP_NAME, __version__
 from .branding import COMPANY, SHORT_NOTICE
 from .loader import InventoryError, format_warnings, load
 from .planner import Plan, PlanError
+from .project import EXT as PROJECT_EXT, ProjectError, empty_sheets, load as load_project, save as save_project
 from .scenario import STORAGE_TYPES, load as load_scenario, new, save as save_scenario
 
 
 def build_parser():
     ap = argparse.ArgumentParser(prog="pvemigplan-cli", description=f"{APP_NAME} {__version__} · {COMPANY}. {SHORT_NOTICE}")
-    ap.add_argument("inventario", nargs="+", help="Excel de PVE Inventory, carpeta con los CSV o un CSV (se pueden indicar varios)")
+    ap.add_argument("inventario", nargs="*",
+                    help="Excel de PVE Inventory, carpeta con los CSV o un CSV (se pueden indicar varios). Opcional con "
+                         "--proyecto o para documentar un clúster nuevo sin inventario")
+    ap.add_argument("-p", "--proyecto", metavar="PVEPLAN",
+                    help=f"Abre un proyecto guardado ({PROJECT_EXT}): inventario, hardware y opciones; lo que se indique "
+                         "además en la línea de comandos tiene prioridad")
+    ap.add_argument("--guardar-proyecto", metavar="PVEPLAN", help=f"Guarda el proyecto ({PROJECT_EXT}) para retomarlo más tarde")
+    ap.add_argument("--sin-migracion", action="store_true",
+                    help="Solo documentar la nueva plataforma (diseño, implementación, hoja de configuración), sin plan de "
+                         "migración. Es automático si el inventario no tiene VMs/CTs o no se indica inventario")
     ap.add_argument("--analisis", "--solo-analisis", dest="analisis", action="store_true",
                     help="Solo análisis: informe de la infraestructura actual (tipo RVTools/health check) con gráficos, "
                          "sin plan de migración ni hardware")
@@ -44,12 +54,30 @@ def build_parser():
 
 
 def main(argv=None):
-    a = build_parser().parse_args(argv)
+    ap = build_parser()
+    a = ap.parse_args(argv)
+    if (a.analisis or a.asbuilt) and not a.inventario:
+        ap.error("--analisis y --asbuilt necesitan el inventario (Excel o carpeta de CSV)")
     if a.analisis:
         return _analysis(a)
     if a.asbuilt:
         return _asbuilt(a)
-    sc = load_scenario(a.escenario) if a.escenario else new()
+    sheets, files = None, list(a.inventario)
+    try:
+        if a.proyecto:
+            pj = load_project(a.proyecto)
+            sc, sheets = pj["escenario"], pj["hojas"]
+            if not files:
+                files = pj["rutas"]
+        else:
+            sc = new()
+        if a.escenario:
+            sc = load_scenario(a.escenario)
+    except (ProjectError, OSError, json.JSONDecodeError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    if a.sin_migracion:
+        sc["sin_migracion"] = True
     if a.autor:
         sc["autor"] = a.autor
     if a.cliente:
@@ -63,8 +91,14 @@ def main(argv=None):
     if a.sin_pbs:
         sc["pbs"]["incluir"] = False
     try:
-        sheets = load(a.inventario)
-        for w in format_warnings(sheets):
+        if a.inventario:
+            sheets = load(a.inventario)
+        elif sheets is None:
+            sheets = empty_sheets()
+            files = []
+            if not a.quiet:
+                print("Sin inventario: se documenta la nueva plataforma sin plan de migración.", file=sys.stderr)
+        for w in format_warnings(sheets) if any(sheets.values()) else []:
             print("Aviso:", w, file=sys.stderr)
         plan = Plan(sheets, sc, a.catalogo)
     except (InventoryError, PlanError, OSError, json.JSONDecodeError) as exc:
@@ -80,6 +114,9 @@ def main(argv=None):
     if a.guardar_escenario:
         save_scenario(sc, a.guardar_escenario)
         out.append(a.guardar_escenario)
+    if a.guardar_proyecto:
+        out.append(save_project(a.guardar_proyecto, sc, sheets, files,
+                                {"config_template": a.hoja_config or "", "catalogo": a.catalogo or ""}))
     if not a.quiet:
         print(plan.text_summary())
         print()

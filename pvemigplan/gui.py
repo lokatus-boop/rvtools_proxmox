@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, DISCLAIMER_TITLE, DISCLAIMER_VERSION, SHORT_NOTICE, asset_path
 from .loader import InventoryError, format_warnings, load
+from .project import EXT as PROJECT_EXT, ProjectError, empty_sheets, load as load_project, save as save_project
 from .scenario import PVE_VERSIONS, STORAGE_TYPES, load as load_scenario, new, save as save_scenario
 from pvetools.safefile import default_folder, ensure_ext, explain, reveal, safe_filename
 
@@ -153,7 +154,8 @@ class ServerDialog(tk.Toplevel):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"{APP_NAME} {__version__} — Planificador de migración a Proxmox VE · {COMPANY}")
+        self.project_path = None
+        self._update_title()
         self.geometry("1220x820")
         self.minsize(980, 640)
         self.sc = new()
@@ -180,6 +182,11 @@ class App(tk.Tk):
             pass
         menu = tk.Menu(self)
         m = tk.Menu(menu, tearoff=False)
+        m.add_command(label="Nuevo proyecto", command=self._new_project)
+        m.add_command(label="Abrir proyecto…", accelerator="Ctrl+O", command=self._open_project)
+        m.add_command(label="Guardar proyecto", accelerator="Ctrl+S", command=self._save_project)
+        m.add_command(label="Guardar proyecto como…", command=lambda: self._save_project(ask=True))
+        m.add_separator()
         m.add_command(label="Añadir inventario Excel…", command=self._add_xlsx)
         m.add_command(label="Añadir carpeta de CSV…", command=self._add_csv)
         m.add_command(label="Informe de solo análisis (sin migración)…", command=self._goto_analysis)
@@ -195,6 +202,8 @@ class App(tk.Tk):
         h.add_command(label="Acerca de", command=lambda: messagebox.showinfo(APP_NAME, f"{APP_NAME} {__version__}\n{COMPANY}\n\n{SHORT_NOTICE}"))
         menu.add_cascade(label="Ayuda", menu=h)
         self.config(menu=menu)
+        self.bind_all("<Control-s>", lambda e: self._save_project())
+        self.bind_all("<Control-o>", lambda e: self._open_project())
 
         header = tk.Frame(self, bg="white", highlightthickness=1, highlightbackground="#d0d0d0")
         header.pack(fill="x")
@@ -243,6 +252,7 @@ class App(tk.Tk):
         ttk.Button(bar, text="Añadir Excel…", command=self._add_xlsx).pack(side="left")
         ttk.Button(bar, text="Añadir carpeta CSV…", command=self._add_csv).pack(side="left", padx=4)
         ttk.Button(bar, text="Vaciar", command=self._clear_files).pack(side="left")
+        ttk.Button(bar, text="Sin inventario (clúster nuevo)", command=self._no_inventory).pack(side="left", padx=4)
         ttk.Button(bar, text="Solo análisis (informe sin migración)…", command=self._goto_analysis).pack(side="right")
         self.v_stopped = tk.BooleanVar(value=True)
         self.v_templates = tk.BooleanVar(value=False)
@@ -291,6 +301,11 @@ class App(tk.Tk):
         self.v_jumbo = tk.BooleanVar(value=True)
         ttk.Checkbutton(mode, text="Jumbo frames (MTU 9000) en redes de almacenamiento/migración", variable=self.v_jumbo).grid(
             row=3, column=2, sticky="w", padx=8)
+        self.v_nomig = tk.BooleanVar(value=False)
+        ttk.Checkbutton(mode, text="Sin migración: solo documentar la nueva plataforma (diseño, implementación, hoja de configuración)",
+                        variable=self.v_nomig).grid(row=4, column=0, columnspan=3, sticky="w", padx=4, pady=(2, 0))
+        ttk.Label(mode, foreground="#555", text="Es automático si no hay inventario o el inventario no tiene VMs/CTs. "
+                  "Si hay VMs, se usan solo para dimensionar.").grid(row=5, column=0, columnspan=3, sticky="w", padx=4)
 
         cap = ttk.LabelFrame(t, text="Criterios de dimensionado")
         cap.pack(fill="x")
@@ -606,6 +621,7 @@ class App(tk.Tk):
                 v = ""
             var.set("" if v is None else (f"{v:g}" if isinstance(v, float) else str(v)))
         self.v_mode.set(sc["modo"])
+        self.v_nomig.set(bool(sc.get("sin_migracion")))
         self.v_storage.set(STORAGE_TYPES[sc["almacenamiento"]["tipo"]])
         self.v_jumbo.set(sc["red"].get("jumbo", True))
         for (kind, key), var in self.sw_vars.items():
@@ -634,6 +650,7 @@ class App(tk.Tk):
             except ValueError:
                 raise ValueError(f"Valor no válido en «{path[-1]}»: {raw}") from None
         sc["modo"] = self.v_mode.get()
+        sc["sin_migracion"] = self.v_nomig.get()
         sc["almacenamiento"]["tipo"] = next((k for k, v in STORAGE_TYPES.items() if v == self.v_storage.get()), "ceph")
         sc["red"]["jumbo"] = self.v_jumbo.get()
         for (kind, key), var in self.sw_vars.items():
@@ -702,6 +719,16 @@ class App(tk.Tk):
         if p:
             self._load_files(self.files + [p])
 
+    def _no_inventory(self):
+        """Clúster nuevo sin inventario de origen: los documentos se generan solo con el hardware indicado."""
+        self._clear_files()
+        self.sheets = empty_sheets()
+        self.files_lbl.configure(text="Sin inventario: se documenta un clúster nuevo, sin migración (indica el hardware en la pestaña 2).")
+        self.v_mode.set("hardware")
+        self._mode_changed()
+        self.nb.select(1)
+        self.status.set("Sin inventario: indica el hardware de destino y pulsa «Generar documentos…» en la pestaña 6.")
+
     def _clear_files(self):
         self.files, self.sheets, self.plan = [], None, None
         self.files_lbl.configure(text="Sin inventario cargado.")
@@ -720,7 +747,10 @@ class App(tk.Tk):
         if warns:
             messagebox.showwarning("Inventario", "\n".join(warns))
         self._refresh_inventory()
-        self.status.set(f"Inventario cargado: {len(sheets['vInfo'])} VMs/CTs. Revisa el destino y calcula el plan.")
+        if sheets["vInfo"]:
+            self.status.set(f"Inventario cargado: {len(sheets['vInfo'])} VMs/CTs. Revisa el destino y calcula el plan.")
+        else:
+            self.status.set("Inventario sin VMs/CTs: se generarán los documentos de la nueva plataforma, sin plan de migración.")
 
     def _refresh_inventory(self):
         if not self.sheets:
@@ -754,8 +784,11 @@ class App(tk.Tk):
     # ------------------------------------------------------------------ cálculo
     def _calculate(self, quiet=False):
         if not self.sheets:
-            messagebox.showinfo(APP_NAME, "Primero carga el inventario (pestaña 1).")
-            return None
+            if not messagebox.askyesno(APP_NAME, "No hay inventario cargado.\n\n¿Generar los documentos solo con el hardware "
+                                                 "indicado (clúster nuevo, sin migración)?\n\nSi vas a migrar, pulsa «No» y carga "
+                                                 "el inventario en la pestaña 1."):
+                return None
+            self._no_inventory()
         try:
             sc = self._to_scenario()
         except ValueError as exc:
@@ -774,7 +807,11 @@ class App(tk.Tk):
         for r in self.plan.issues:
             self.risk_tree.insert("", "end", values=tuple(r.values()), tags=(r["Severidad"],))
         self.nb.select(5)
-        self.status.set("Plan calculado: " + ("capacidad OK." if self.plan.eval["ok"] else "¡capacidad insuficiente! Revisa el resumen."))
+        if not self.plan.migrate:
+            self.status.set("Sin migración: los documentos describen la nueva plataforma"
+                            + ("." if self.plan.eval["ok"] else " (¡capacidad insuficiente! Revisa el resumen)."))
+        else:
+            self.status.set("Plan calculado: " + ("capacidad OK." if self.plan.eval["ok"] else "¡capacidad insuficiente! Revisa el resumen."))
         return self.plan
 
     def _export(self):
@@ -794,7 +831,7 @@ class App(tk.Tk):
         if not folder:
             return
         self._save_settings(config_template=tmpl, out_charts=self.v_charts.get(), **{"out_" + k: v for k, v in sel.items()})
-        base = "Plan_migracion_" + safe_filename(plan.sc.get("cliente") or "", "plan")
+        base = ("Plan_migracion_" if plan.migrate else "Diseno_plataforma_") + safe_filename(plan.sc.get("cliente") or "", "plan")
         charts = self.v_charts.get()
 
         def job():
@@ -887,6 +924,122 @@ class App(tk.Tk):
             self.sc = sc
             self.status.set(f"Escenario guardado en {p}")
 
+    # ------------------------------------------------------------------ proyecto
+    def _update_title(self):
+        name = f"{os.path.basename(self.project_path)} — " if self.project_path else ""
+        self.title(f"{name}{APP_NAME} {__version__} — Planificador de migración a Proxmox VE · {COMPANY}")
+
+    def _ui_state(self) -> dict:
+        return {
+            "salidas": {k: v.get() for k, v in self.v_out.items()}, "graficos": self.v_charts.get(),
+            "plantilla_hoja_config": self.v_template.get().strip(), "catalogo": self.catalog_path or "",
+            "asbuilt": {"inventario": self.v_ab_inv.get().strip(), "hoja_config": self.v_ab_cfg.get().strip(),
+                        "cliente": self.v_ab_client.get().strip(), "autor": self.v_ab_author.get().strip()},
+            "analisis": {"cliente": self.v_an_client.get().strip(), "autor": self.v_an_author.get().strip(),
+                         "word": self.v_an_docx.get(), "excel": self.v_an_xlsx.get(), "graficos": self.v_an_charts.get()},
+        }
+
+    def _apply_ui_state(self, ui: dict):
+        for k, v in (ui.get("salidas") or {}).items():
+            if k in self.v_out:
+                self.v_out[k].set(bool(v))
+        self.v_charts.set(bool(ui.get("graficos", self.v_charts.get())))
+        if "plantilla_hoja_config" in ui:
+            self.v_template.set(ui.get("plantilla_hoja_config") or "")
+        cat = ui.get("catalogo") or ""
+        self.catalog_path = cat if cat and os.path.exists(cat) else None
+        ab = ui.get("asbuilt") or {}
+        for var, key in ((self.v_ab_inv, "inventario"), (self.v_ab_cfg, "hoja_config"), (self.v_ab_client, "cliente"), (self.v_ab_author, "autor")):
+            if key in ab:
+                var.set(ab.get(key) or "")
+        an = ui.get("analisis") or {}
+        for var, key in ((self.v_an_client, "cliente"), (self.v_an_author, "autor")):
+            if key in an:
+                var.set(an.get(key) or "")
+        for var, key in ((self.v_an_docx, "word"), (self.v_an_xlsx, "excel"), (self.v_an_charts, "graficos")):
+            if key in an:
+                var.set(bool(an[key]))
+
+    def _new_project(self):
+        if not messagebox.askyesno(APP_NAME, "¿Empezar un proyecto nuevo?\nSe vacían el inventario y los datos introducidos "
+                                             "(guarda antes el proyecto actual si lo necesitas)."):
+            return
+        self._clear_files()
+        self.sc = new()
+        self.catalog_path = None
+        self.project_path = None
+        self._from_scenario()
+        for v in (self.v_ab_inv, self.v_ab_cfg, self.v_ab_client, self.v_an_client):
+            v.set("")
+        self.result_txt.delete("1.0", "end")
+        self.risk_tree.delete(*self.risk_tree.get_children())
+        self._update_title()
+        self.nb.select(0)
+        self.status.set("Proyecto nuevo. Carga el inventario o pulsa «Sin inventario (clúster nuevo)».")
+
+    def _open_project(self):
+        p = filedialog.askopenfilename(title="Abrir proyecto", initialdir=self._out_dir(),
+                                       filetypes=[("Proyecto del planificador", "*" + PROJECT_EXT), ("Todos", "*.*")])
+        if p:
+            self._load_project_file(os.path.abspath(p))
+
+    def _load_project_file(self, p):
+        try:
+            pj = load_project(p)
+        except (ProjectError, OSError) as exc:
+            messagebox.showerror(APP_NAME, explain(exc, p) if isinstance(exc, OSError) else str(exc))
+            return
+        self._clear_files()
+        sheets, files, note = pj["hojas"], pj["ficheros"], ""
+        if sheets is None and pj["rutas"]:            # proyecto sin el inventario incrustado: se recarga de las rutas
+            try:
+                sheets, files = load(pj["rutas"]), pj["rutas"]
+            except (InventoryError, OSError, ValueError) as exc:
+                note = f"\n\nNo se pudo recargar el inventario ({exc}). Vuelve a cargarlo en la pestaña 1."
+        self.sc = pj["escenario"]
+        self._from_scenario()
+        self._apply_ui_state(pj["interfaz"])
+        if sheets is not None:
+            self.sheets, self.files = sheets, list(files)
+            if any(sheets.values()):
+                self.files_lbl.configure(text="Del proyecto: " + (" · ".join(os.path.basename(str(f).rstrip("/\\")) for f in files)
+                                                                    or "inventario guardado"))
+            else:
+                self.files_lbl.configure(text="Sin inventario: se documenta un clúster nuevo, sin migración.")
+            self._refresh_inventory()
+        self.project_path = p
+        self._update_title()
+        self._save_settings(last_output_dir=os.path.dirname(p))
+        self.status.set(f"Proyecto abierto: {p}" + (f" (guardado con {pj['aplicacion']} el {pj['guardado'].replace('T', ' ')})"
+                                                     if pj["guardado"] else ""))
+        if note:
+            messagebox.showwarning(APP_NAME, "Proyecto abierto." + note)
+
+    def _save_project(self, ask=False):
+        try:
+            sc = self._to_scenario()
+        except ValueError as exc:
+            messagebox.showerror(APP_NAME, str(exc))
+            return False
+        p = self.project_path
+        if ask or not p:
+            client = sc.get("cliente") or ""
+            p = filedialog.asksaveasfilename(title="Guardar proyecto", defaultextension=PROJECT_EXT, initialdir=self._out_dir(),
+                                             initialfile=("Proyecto_" + safe_filename(client, "planificador")) + PROJECT_EXT,
+                                             filetypes=[("Proyecto del planificador", "*" + PROJECT_EXT)])
+            if not p:
+                return False
+        try:
+            p = save_project(p, sc, self.sheets, self.files, self._ui_state())
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(APP_NAME, "No se pudo guardar el proyecto.\n\n" + explain(exc, p))
+            return False
+        self.sc, self.project_path = sc, p
+        self._update_title()
+        self._save_settings(last_output_dir=os.path.dirname(p))
+        self.status.set(f"Proyecto guardado en {p}")
+        return True
+
     def _load_catalog(self):
         p = filedialog.askopenfilename(filetypes=[("Catálogo", "*.json")])
         if p:
@@ -950,9 +1103,14 @@ def _report_error(app):
     app.report_callback_exception = handler
 
 
-def main():
+def main(argv=None):
+    import sys
+    args = sys.argv[1:] if argv is None else argv
     app = App()
     _report_error(app)
+    proj = next((x for x in args if x.lower().endswith(PROJECT_EXT)), None)
+    if proj:  # p. ej. doble clic en un .pveplan asociado al .exe
+        app.after(500, lambda: app._load_project_file(os.path.abspath(proj)))
     app.protocol("WM_DELETE_WINDOW", app._on_close)
     app.mainloop()
     return 0
