@@ -16,6 +16,7 @@ import os
 from . import APP_NAME, __version__
 from .scenario import merge, new
 from pvetools.safefile import atomic_text, ensure_ext
+from pvetools.i18n import _
 from pvetools.schema import SCHEMA
 
 EXT = ".pveplan"
@@ -62,14 +63,13 @@ def load(path: str) -> dict:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except UnicodeDecodeError as exc:
-        raise ProjectError(f"{os.path.basename(path)} no es un proyecto del planificador.") from exc
+        raise ProjectError(_("{basename} no es un proyecto del planificador.", basename=os.path.basename(path))) from exc
     except json.JSONDecodeError as exc:
-        raise ProjectError(f"{os.path.basename(path)} está dañado o no es un proyecto del planificador ({exc}).") from exc
+        raise ProjectError(_("{basename} está dañado o no es un proyecto del planificador ({exc}).", basename=os.path.basename(path), exc=exc)) from exc
     if not isinstance(data, dict) or data.get("tipo") != KIND:
-        raise ProjectError(f"{os.path.basename(path)} no es un proyecto de {APP_NAME}.")
+        raise ProjectError(_("{basename} no es un proyecto de {APP_NAME}.", basename=os.path.basename(path), APP_NAME=APP_NAME))
     if int(data.get("formato") or 0) > FORMAT:
-        raise ProjectError(f"El proyecto se guardó con una versión más reciente ({data.get('aplicacion')}). "
-                           f"Actualiza {APP_NAME} para abrirlo.")
+        raise ProjectError(_("El proyecto se guardó con una versión más reciente ({app}). Actualiza {APP_NAME} para abrirlo.", app=data.get('aplicacion'), APP_NAME=APP_NAME))
     inv = data.get("inventario") or {}
     hojas = inv.get("hojas")
     if hojas is not None:

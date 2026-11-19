@@ -1,6 +1,8 @@
 """Diagramas de arquitectura y de red (con iconos de servidores, switches y cabinas)."""
 from __future__ import annotations
 
+from pvetools.i18n import _
+
 import textwrap
 
 import matplotlib
@@ -114,8 +116,8 @@ def network_diagram(plan, folder):
     # red corporativa
     rbox(ax, 20, 640, W - 40, 46, "#eaf1f8", ec="#c5d5e6")
     cli = plan.sc.get("cliente") or "CLIENTE"
-    ax.text(40, 663, f"RED CORPORATIVA / INFRAESTRUCTURA {cli.upper()}", fontsize=12, fontweight="bold", color=BRAND, va="center")
-    fit_text(ax, W * 0.52, 642, W * 0.46, 42, "Uplinks de los switches: nº de enlaces, velocidades y tipo de interconexión por definir con el cliente",
+    ax.text(40, 663, _("RED CORPORATIVA / INFRAESTRUCTURA {upper}", upper=cli.upper()), fontsize=12, fontweight="bold", color=BRAND, va="center")
+    fit_text(ax, W * 0.52, 642, W * 0.46, 42, _("Uplinks de los switches: nº de enlaces, velocidades y tipo de interconexión por definir con el cliente"),
              fs=9, color=INK2, ha="right")
 
     # switches
@@ -128,19 +130,19 @@ def network_diagram(plan, folder):
         sw_x[f["id"]] = x + cw / 2
         rbox(ax, x, 455, cw, 165, CARD, ec=EDGE)
         rbox(ax, x + 8, 585, cw - 16, 28, f["color"], ec=f["color"], r=5, z=2)
-        unit = "Gb FC" if f["nombre"].startswith("FC") else "GbE"
-        title = (f"GESTIÓN OOB · {f['gbps']:g} {unit}" if f["rol"] == "oob" else
+        unit = _("Gb FC") if f["nombre"].startswith("FC") else "GbE"
+        title = (_("GESTIÓN OOB · {gbps:g} {unit}", gbps=f['gbps'], unit=unit) if f["rol"] == "oob" else
                  f"{'SERVICIO' if f['rol'] == 'servicio' else ('SAN' if unit == 'Gb FC' else 'STORAGE')} · {f['nombre']} · {f['gbps']:g} {unit.replace(' FC', '')}")
         fit_text(ax, x + 8, 585, cw - 16, 28, title, fs=10, color="white", fontweight="bold", zorder=3)
         sw_per = max(1, f.get("switches", 1))
         total = 48 * sw_per
         brand = _brand(f.get("modelo"))
         draw_switch(ax, x + 22, 535, cw - 44, 42, f["puertos"], total, f["color"],
-                    brand if brand != "SERVER" else ("FC 32G" if unit == "Gb FC" else "SWITCH"))
-        fit_text(ax, x + 6, 512, cw - 12, 20, f"{f['puertos']} puertos requeridos" + (f" · {sw_per} switches" if sw_per > 1 else ""),
+                    brand if brand != "SERVER" else (_("FC 32G") if unit == "Gb FC" else "SWITCH"))
+        fit_text(ax, x + 6, 512, cw - 12, 20, _("{puertos} puertos requeridos", puertos=f['puertos']) + (_(" · {sw_per} switches", sw_per=sw_per) if sw_per > 1 else ""),
                  fs=9, color=INK, fontweight="bold")
         fit_text(ax, x + 6, 478, cw - 12, 32, f.get("modelo") or "", fs=8, color=INK2)
-        sup = "Suministra Fsas Technologies" if f.get("suministra") == "fsas" else "Switch del cliente"
+        sup = _("Suministra Fsas Technologies") if f.get("suministra") == "fsas" else _("Switch del cliente")
         fit_text(ax, x + 6, 458, cw - 12, 18, sup, fs=7.5, color=f["color"], fontweight="bold")
         ax.plot([x + cw / 2, x + cw / 2], [620, 640], color=f["color"], lw=1, ls=(0, (3, 3)), zorder=1)
 
@@ -153,7 +155,7 @@ def network_diagram(plan, folder):
         ax.plot([sw_x[f["id"]], sw_x[f["id"]]], [455, yb], color=f["color"], lw=1.6, zorder=2)
         ax.add_patch(plt.Circle((sw_x[f["id"]], yb), 4, color=f["color"], zorder=5))
     low_bus = min(bus_y.values())
-    ax.text(22, low_bus - 18, "Cada línea horizontal representa una red física (fabric) compartida. Los números indican puertos por equipo; no son cables dibujados.",
+    ax.text(22, low_bus - 18, _("Cada línea horizontal representa una red física (fabric) compartida. Los números indican puertos por equipo; no son cables dibujados."),
             fontsize=7.5, color=INK2, va="center", zorder=6, bbox=dict(fc="#f6f8fb", ec="none", pad=1.5))
 
     # equipos
@@ -190,11 +192,11 @@ def network_diagram(plan, folder):
                 if fid and fid not in fabs_used:
                     fabs_used.append(fid)
             if ln["fb"] and ln["b"]:
-                txt = f"{ln['a']} + {ln['b']} puertos ({fab_by_id[ln['fa']]['nombre']} / {fab_by_id[ln['fb']]['nombre']})"
+                txt = _("{a} + {b} puertos ({nombre} / {nombre2})", a=ln['a'], b=ln['b'], nombre=fab_by_id[ln['fa']]['nombre'], nombre2=fab_by_id[ln['fb']]['nombre'])
             else:
-                txt = f"{ln['a']} puerto{'s' if ln['a'] > 1 else ''} ({fab_by_id[ln['fa']]['nombre']})"
+                txt = _("{a} puerto{v} ({nombre})", a=ln['a'], v='s' if ln['a'] > 1 else '', nombre=fab_by_id[ln['fa']]['nombre'])
             unit = "Gb"
-            rows.append((fab_by_id[ln["fa"]]["color"], f"{USO_LABEL.get(ln['uso'], ln['uso'])} {ln['gbps']:g} {unit}", txt))
+            rows.append((fab_by_id[ln["fa"]]["color"], f"{_(USO_LABEL.get(ln['uso'], ln['uso']))} {ln['gbps']:g} {unit}", txt))
         rh = 30
         for k, (col, a, b) in enumerate(rows):
             ry = iy - 14 - (k + 1) * rh
@@ -226,8 +228,7 @@ def architecture(plan, folder):
     svc = next(f for f in net.fabrics if f["rol"] == "servicio")
     unit = "GbE"
     rbox(ax, 30, 480, W - 60, 56, "#e8f0f9", ec=BRAND)
-    fit_text(ax, 30, 480, W - 60, 56, f"2× switch de servicio (MLAG/stack) · {svc['gbps']:g} {unit} · "
-             f"VLANs de VMs, migración" + (", backup" if plan.pbs else "") + (" y almacenamiento" if plan.storage_type in ("ceph", "nfs") or
+    fit_text(ax, 30, 480, W - 60, 56, _("2× switch de servicio (MLAG/stack) · {gbps:g} {unit} · VLANs de VMs, migración", gbps=svc['gbps'], unit=unit) + (_(", backup") if plan.pbs else "") + (_(" y almacenamiento") if plan.storage_type in ("ceph", "nfs") or
                                                                                (plan.storage_type == "san" and not net.fc) else ""),
              fs=12, color=INK, fontweight="bold")
     nodes = plan.nodes
@@ -242,33 +243,31 @@ def architecture(plan, folder):
         ax.plot([x + sw / 2, x + sw / 2], [480, 430], color="#2a78d6", lw=2, zorder=1)
         rbox(ax, x, 270, sw, 160, "white", ec=BRAND)
         draw_server(ax, x + 10, 380, sw - 20, 38, _brand(s.model))
-        txt = f"{nd['name']}\n{s.cores} cores · {s.ram_gib} GiB"
+        txt = _("{name}\n{cores} cores · {ram_gib} GiB", name=nd['name'], cores=s.cores, ram_gib=s.ram_gib)
         if s.data_disks and plan.storage_type in ("ceph", "zfs"):
-            txt += f"\n{s.data_disks}× {s.data_disk_tb:g} TB {s.data_disk_type}"
+            txt += _("\n{data_disks}× {data_disk_tb:g} TB {data_disk_type}", data_disks=s.data_disks, data_disk_tb=s.data_disk_tb, data_disk_type=s.data_disk_type)
         fit_text(ax, x + 4, 276, sw - 8, 98, txt, fs=10, color=INK)
     if extra:
         x = 30 + len(shown) * (sw + gap)
         rbox(ax, x, 270, sw, 160, "white", ec=BRAND)
-        fit_text(ax, x, 270, sw, 160, f"… +{extra}\nnodos", fs=12, color=INK)
+        fit_text(ax, x, 270, sw, 160, _("… +{extra}\nnodos", extra=extra), fs=12, color=INK)
     spec = nodes[0]["spec"]
-    fit_text(ax, 30, 236, W - 60, 28, f"Clúster Proxmox VE {plan.sc['pve_version']} · {len(nodes)} nodos · {spec.model}",
+    fit_text(ax, 30, 236, W - 60, 28, _("Clúster Proxmox VE {pve_version} · {n_nodes} nodos · {model}", pve_version=plan.sc['pve_version'], n_nodes=len(nodes), model=spec.model),
              fs=12, color=BRAND, fontweight="bold")
     e = plan.eval
     typ = plan.storage_type
-    st_txt = {"ceph": f"Ceph (réplica {plan.sc['almacenamiento'].get('replicas', 3)}) en todos los nodos · {e['almacenamiento_util_gib'] / 1024:.1f} TiB útiles · red dedicada",
-              "zfs": f"ZFS local en cada nodo + replicación · {e['almacenamiento_util_gib'] / 1024:.1f} TiB útiles",
-              "san": f"Cabina SAN ({net.proto}, multipath) · {e['almacenamiento_util_gib'] / 1024:.1f} TiB útiles",
-              "nfs": f"NAS NFS · {e['almacenamiento_util_gib'] / 1024:.1f} TiB útiles"}[typ]
+    st_txt = {"ceph": _("Ceph (réplica {get}) en todos los nodos · {almacenamiento_util_gib:.1f} TiB útiles · red dedicada", get=plan.sc['almacenamiento'].get('replicas', 3), almacenamiento_util_gib=e['almacenamiento_util_gib'] / 1024),
+              "zfs": _("ZFS local en cada nodo + replicación · {almacenamiento_util_gib:.1f} TiB útiles", almacenamiento_util_gib=e['almacenamiento_util_gib'] / 1024),
+              "san": _("Cabina SAN ({proto}, multipath) · {almacenamiento_util_gib:.1f} TiB útiles", proto=net.proto, almacenamiento_util_gib=e['almacenamiento_util_gib'] / 1024),
+              "nfs": _("NAS NFS · {almacenamiento_util_gib:.1f} TiB útiles", almacenamiento_util_gib=e['almacenamiento_util_gib'] / 1024)}[typ]
     half = (W - 60 - 20) / 2
     rbox(ax, 30, 130, half if plan.pbs else W - 60, 80, "#e6f6ef", ec="#1baf7a")
     fit_text(ax, 30, 130, half if plan.pbs else W - 60, 80, st_txt, fs=12, color=INK)
     if plan.pbs:
         p = plan.pbs
         rbox(ax, 50 + half, 130, half, 80, "#fdf0e9", ec="#eb6834")
-        fit_text(ax, 50 + half, 130, half, 80, f"Proxmox Backup Server\n{p['util_necesario_gib'] / 1024:.1f} TiB útiles · "
-                 f"{p['propuesta']['cores']} cores · {p['propuesta']['ram_gib']} GiB RAM", fs=12, color=INK)
+        fit_text(ax, 50 + half, 130, half, 80, _("Proxmox Backup Server\n{util_necesario_gib:.1f} TiB útiles · {cores} cores · {ram_gib} GiB RAM", util_necesario_gib=p['util_necesario_gib'] / 1024, cores=p['propuesta']['cores'], ram_gib=p['propuesta']['ram_gib']), fs=12, color=INK)
     rbox(ax, 30, 25, W - 60, 80, "#f0efec", ec=INK2)
     oob = next(f for f in net.fabrics if f["rol"] == "oob")
-    fit_text(ax, 30, 25, W - 60, 80, f"Red de gestión + Corosync (2 enlaces redundantes) · gestión fuera de banda (iRMC) en switch OOB"
-             f" ({oob.get('modelo') or 'por indicar'})", fs=11, color=INK)
+    fit_text(ax, 30, 25, W - 60, 80, _("Red de gestión + Corosync (2 enlaces redundantes) · gestión fuera de banda (iRMC) en switch OOB ({v})", v=oob.get('modelo') or _('por indicar')), fs=11, color=INK)
     return _save(fig, folder, "destino_arquitectura.png")

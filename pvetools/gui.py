@@ -16,6 +16,7 @@ from .collector import SHEET_GROUPS, SHEETS, Inventory
 from .anonymize import Anonymizer, default_map_path, reverse_file
 from .export import columns, to_csv, to_xlsx
 from .safefile import default_folder, ensure_ext, explain, reveal
+from .i18n import LANGS, N_, _, cell_out, detect, get_lang, set_lang
 
 CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~/.config"), "PVEInventory")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "connections.json")
@@ -25,7 +26,7 @@ SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"{APP_NAME} {__version__} — Inventario Proxmox VE · {COMPANY}")
+        self.title(_("{app} {version} — Inventario Proxmox VE · {company}", app=APP_NAME, version=__version__, company=COMPANY))
         self.geometry("1280x820")
         self.minsize(900, 560)
         self.connections: list[dict] = []  # los secretos solo se guardan en memoria
@@ -58,13 +59,22 @@ class App(tk.Tk):
             tk.Label(header, text=COMPANY, bg="white", font=("Segoe UI", 16, "bold")).pack(side="left", padx=12, pady=6)
         titles = tk.Frame(header, bg="white")
         titles.pack(side="left", padx=10)
-        tk.Label(titles, text=f"{APP_NAME} — Inventario de Proxmox VE", bg="white",
+        tk.Label(titles, text=_("{app} — Inventario de Proxmox VE", app=APP_NAME), bg="white",
                  font=("Segoe UI", 13, "bold"), fg="#1F4E78").pack(anchor="w")
-        tk.Label(titles, text=SHORT_NOTICE, bg="white", fg="#555", font=("Segoe UI", 9)).pack(anchor="w")
-        tk.Button(header, text="Aviso de uso", relief="flat", bg="white", fg="#1F4E78", cursor="hand2",
+        tk.Label(titles, text=_(SHORT_NOTICE), bg="white", fg="#555", font=("Segoe UI", 9)).pack(anchor="w")
+        tk.Button(header, text=_("Aviso de uso"), relief="flat", bg="white", fg="#1F4E78", cursor="hand2",
                   font=("Segoe UI", 9, "underline"), command=self._show_notice).pack(side="right", padx=12)
+        langf = tk.Frame(header, bg="white")
+        langf.pack(side="right", padx=8)
+        tk.Label(langf, text=_("Idioma") + (" / Language" if get_lang() != "en" else ""), bg="white", fg="#555",
+                 font=("Segoe UI", 9)).pack(side="left", padx=(0, 4))
+        self.v_lang = tk.StringVar(value=LANGS[get_lang()])
+        cb = ttk.Combobox(langf, textvariable=self.v_lang, values=list(LANGS.values()), state="readonly", width=10)
+        cb.pack(side="left")
+        cb.bind("<<ComboboxSelected>>", lambda _e: self._change_lang(
+            next(k for k, v in LANGS.items() if v == self.v_lang.get())))
 
-        top = ttk.LabelFrame(self, text="Conexión")
+        top = ttk.LabelFrame(self, text=_("Conexión"))
         top.pack(fill="x", padx=8, pady=(8, 4))
 
         self.v_host = tk.StringVar()
@@ -78,54 +88,54 @@ class App(tk.Tk):
         self.v_keepip = tk.BooleanVar(value=False)
 
         r = 0
-        ttk.Label(top, text="Host / IP[:puerto]").grid(row=r, column=0, sticky="w", padx=4, pady=2)
+        ttk.Label(top, text=_("Host / IP[:puerto]")).grid(row=r, column=0, sticky="w", padx=4, pady=2)
         ttk.Entry(top, textvariable=self.v_host, width=28).grid(row=r, column=1, sticky="we", padx=4)
-        ttk.Label(top, text="Usuario (user@realm)").grid(row=r, column=2, sticky="w", padx=4)
+        ttk.Label(top, text=_("Usuario (user@realm)")).grid(row=r, column=2, sticky="w", padx=4)
         ttk.Entry(top, textvariable=self.v_user, width=22).grid(row=r, column=3, sticky="we", padx=4)
         auth = ttk.Frame(top)
         auth.grid(row=r, column=4, columnspan=2, sticky="w", padx=4)
-        ttk.Radiobutton(auth, text="API token", value="token", variable=self.v_auth, command=self._auth_changed).pack(side="left")
-        ttk.Radiobutton(auth, text="Contraseña", value="password", variable=self.v_auth, command=self._auth_changed).pack(side="left", padx=6)
+        ttk.Radiobutton(auth, text=_("API token"), value="token", variable=self.v_auth, command=self._auth_changed).pack(side="left")
+        ttk.Radiobutton(auth, text=_("Contraseña"), value="password", variable=self.v_auth, command=self._auth_changed).pack(side="left", padx=6)
         r += 1
-        self.lbl_tokid = ttk.Label(top, text="Token ID")
+        self.lbl_tokid = ttk.Label(top, text=_("Token ID"))
         self.lbl_tokid.grid(row=r, column=0, sticky="w", padx=4, pady=2)
         self.ent_tokid = ttk.Entry(top, textvariable=self.v_tokid, width=28)
         self.ent_tokid.grid(row=r, column=1, sticky="we", padx=4)
-        self.lbl_secret = ttk.Label(top, text="Secreto del token")
+        self.lbl_secret = ttk.Label(top, text=_("Secreto del token"))
         self.lbl_secret.grid(row=r, column=2, sticky="w", padx=4)
         sec = ttk.Frame(top)
         sec.grid(row=r, column=3, sticky="we", padx=4)
         self.ent_secret = ttk.Entry(sec, textvariable=self.v_secret, show="•", width=22)
         self.ent_secret.pack(side="left", fill="x", expand=True)
         self.v_show = tk.BooleanVar(value=False)
-        ttk.Checkbutton(sec, text="Mostrar", variable=self.v_show,
+        ttk.Checkbutton(sec, text=_("Mostrar"), variable=self.v_show,
                         command=lambda: self.ent_secret.configure(show="" if self.v_show.get() else "•")).pack(side="left", padx=(4, 0))
-        ttk.Checkbutton(top, text="Verificar certificado SSL", variable=self.v_verify).grid(row=r, column=4, sticky="w", padx=4)
-        ttk.Checkbutton(top, text="Consultar guest agent (IPs, SO)", variable=self.v_agent).grid(row=r, column=5, sticky="w", padx=4)
+        ttk.Checkbutton(top, text=_("Verificar certificado SSL"), variable=self.v_verify).grid(row=r, column=4, sticky="w", padx=4)
+        ttk.Checkbutton(top, text=_("Consultar guest agent (IPs, SO)"), variable=self.v_agent).grid(row=r, column=5, sticky="w", padx=4)
         r += 1
         btns = ttk.Frame(top)
         btns.grid(row=r, column=0, columnspan=6, sticky="we", pady=4)
-        ttk.Button(btns, text="Añadir a la lista", command=self._add_conn).pack(side="left", padx=4)
-        ttk.Button(btns, text="Quitar seleccionada", command=self._del_conn).pack(side="left", padx=4)
-        self.btn_run = ttk.Button(btns, text="▶ Inventariar", command=self._run)
+        ttk.Button(btns, text=_("Añadir a la lista"), command=self._add_conn).pack(side="left", padx=4)
+        ttk.Button(btns, text=_("Quitar seleccionada"), command=self._del_conn).pack(side="left", padx=4)
+        self.btn_run = ttk.Button(btns, text=_("▶ Inventariar"), command=self._run)
         self.btn_run.pack(side="left", padx=16)
-        ttk.Button(btns, text="Exportar Excel…", command=self._export_xlsx).pack(side="left", padx=4)
-        ttk.Button(btns, text="Exportar CSV…", command=self._export_csv).pack(side="left", padx=4)
-        ttk.Label(btns, text="Un nodo por clúster basta; los nodos sueltos, uno a uno.",
+        ttk.Button(btns, text=_("Exportar Excel…"), command=self._export_xlsx).pack(side="left", padx=4)
+        ttk.Button(btns, text=_("Exportar CSV…"), command=self._export_csv).pack(side="left", padx=4)
+        ttk.Label(btns, text=_("Un nodo por clúster basta; los nodos sueltos, uno a uno."),
                   foreground="#555").pack(side="right", padx=4)
         r += 1
         anon = ttk.Frame(top)
         anon.grid(row=r, column=0, columnspan=6, sticky="we", pady=(0, 4))
-        ttk.Checkbutton(anon, text="Anonimizar al exportar (nombres → seudónimos, IPs/MACs transformadas)",
+        ttk.Checkbutton(anon, text=_("Anonimizar al exportar (nombres → seudónimos, IPs/MACs transformadas)"),
                         variable=self.v_anon, command=self._anon_changed).pack(side="left", padx=4)
-        self.chk_keepip = ttk.Checkbutton(anon, text="Conservar IPs", variable=self.v_keepip)
+        self.chk_keepip = ttk.Checkbutton(anon, text=_("Conservar IPs"), variable=self.v_keepip)
         self.chk_keepip.pack(side="left", padx=8)
-        ttk.Button(anon, text="¿Qué se anonimiza?", command=self._anon_help).pack(side="left", padx=4)
-        ttk.Button(anon, text="Revertir anonimización…", command=self._revert).pack(side="left", padx=4)
+        ttk.Button(anon, text=_("¿Qué se anonimiza?"), command=self._anon_help).pack(side="left", padx=4)
+        ttk.Button(anon, text=_("Revertir anonimización…"), command=self._revert).pack(side="left", padx=4)
         self._anon_changed()
         r += 1
         self.conn_list = ttk.Treeview(top, columns=("host", "user", "auth"), show="headings", height=3)
-        for c, t, w in (("host", "Host", 260), ("user", "Usuario / token", 260), ("auth", "Autenticación", 140)):
+        for c, t, w in (("host", "Host", 260), ("user", _("Usuario / token"), 260), ("auth", _("Autenticación"), 140)):
             self.conn_list.heading(c, text=t)
             self.conn_list.column(c, width=w, anchor="w")
         self.conn_list.grid(row=r, column=0, columnspan=6, sticky="we", padx=4, pady=(0, 4))
@@ -150,12 +160,12 @@ class App(tk.Tk):
         paned.add(self.content, weight=1)
         self.tabs = {}
         for group, names in SHEET_GROUPS:
-            gid = self.nav.insert("", "end", text=group, open=True)
+            gid = self.nav.insert("", "end", text=_(group), open=True)
             for name in names:
                 self._make_sheet(name, gid)
         self._show_sheet("vInfo")
 
-        self.status = tk.StringVar(value="Añade una conexión y pulsa Inventariar.")
+        self.status = tk.StringVar(value=_("Añade una conexión y pulsa Inventariar."))
         ttk.Label(self, textvariable=self.status, relief="sunken", anchor="w").pack(fill="x", side="bottom")
         self._auth_changed()
 
@@ -167,7 +177,7 @@ class App(tk.Tk):
         bar.pack(fill="x")
         title = ttk.Label(bar, text=name, font=("Segoe UI", 11, "bold"))
         title.pack(side="left", padx=(4, 12), pady=2)
-        ttk.Label(bar, text="Filtro:").pack(side="left", padx=4, pady=2)
+        ttk.Label(bar, text=_("Filtro:")).pack(side="left", padx=4, pady=2)
         fv = tk.StringVar()
         ttk.Entry(bar, textvariable=fv, width=40).pack(side="left")
         count = ttk.Label(bar, text="")
@@ -212,16 +222,43 @@ class App(tk.Tk):
             n = len(self.sheets.get(t["key"], []))
             self.nav.item(t["nav"], text=f"{name} ({n})" if n else name)
 
+    def _change_lang(self, code):
+        """Cambia el idioma de la ventana (y del Excel/CSV) sin perder las conexiones ni el inventario."""
+        if code == get_lang():
+            return
+        keep = {k: getattr(self, k).get() for k in ("v_host", "v_user", "v_auth", "v_tokid", "v_secret", "v_verify",
+                                                     "v_agent", "v_anon", "v_keepip")}
+        shown = next((n for n, t in self.tabs.items() if t["nav"] in self.nav.selection()), "vInfo")
+        set_lang(code)
+        st = self._read_settings()
+        st["lang"] = code
+        self._write_settings(st)
+        for w in self.winfo_children():
+            w.destroy()
+        self._build()
+        for k, v in keep.items():
+            getattr(self, k).set(v)
+        self.title(_("{app} {version} — Inventario Proxmox VE · {company}", app=APP_NAME, version=__version__,
+                     company=COMPANY))
+        self._auth_changed()
+        self._anon_changed()
+        self._refresh_conns()
+        if self.sheets:
+            for n in SHEETS:
+                self._fill(n)
+            self._update_nav_counts()
+        self._show_sheet(shown)
+
     # ------------------------------------------------------------------ aviso
     def _show_notice(self, first_run: bool = False):
         win = tk.Toplevel(self)
-        win.title(DISCLAIMER_TITLE)
+        win.title(_(DISCLAIMER_TITLE))
         win.transient(self)
         win.resizable(False, False)
         win.configure(bg="white")
         if "logo" in self._images:
             tk.Label(win, image=self._images["logo"], bg="white").pack(anchor="w", padx=16, pady=(14, 4))
-        msg = tk.Message(win, text=DISCLAIMER, width=560, bg="white", font=("Segoe UI", 10))
+        msg = tk.Message(win, text=_(DISCLAIMER), width=560, bg="white", font=("Segoe UI", 10))
         msg.pack(padx=16, pady=8)
         bar = tk.Frame(win, bg="white")
         bar.pack(fill="x", padx=16, pady=(0, 14))
@@ -232,11 +269,11 @@ class App(tk.Tk):
             win.destroy()
 
         if first_run:
-            ttk.Button(bar, text="Acepto", command=accept).pack(side="right")
-            ttk.Button(bar, text="Salir", command=win.destroy).pack(side="right", padx=8)
+            ttk.Button(bar, text=_("Acepto"), command=accept).pack(side="right")
+            ttk.Button(bar, text=_("Salir"), command=win.destroy).pack(side="right", padx=8)
             win.protocol("WM_DELETE_WINDOW", win.destroy)
         else:
-            ttk.Button(bar, text="Cerrar", command=win.destroy).pack(side="right")
+            ttk.Button(bar, text=_("Cerrar"), command=win.destroy).pack(side="right")
         win.update_idletasks()
         x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
         y = self.winfo_rooty() + 60
@@ -272,14 +309,14 @@ class App(tk.Tk):
 
     def _auth_changed(self):
         tok = self.v_auth.get() == "token"
-        self.lbl_secret.configure(text="Secreto del token" if tok else "Contraseña")
+        self.lbl_secret.configure(text=_("Secreto del token") if tok else _("Contraseña"))
         self.ent_tokid.configure(state="normal" if tok else "disabled")
 
     # ------------------------------------------------------------------ conexiones
     def _current(self) -> dict | None:
         host, user = self.v_host.get().strip(), self.v_user.get().strip()
         if not host or not user:
-            messagebox.showwarning(APP_NAME, "Indica host y usuario")
+            messagebox.showwarning(APP_NAME, _("Indica host y usuario"))
             return None
         c = {"host": host, "user": user, "verify_ssl": self.v_verify.get()}
         if self.v_auth.get() == "token":
@@ -326,7 +363,7 @@ class App(tk.Tk):
         for c in self.connections:
             who = f"{c['user']}!{c['token_id']}" if c.get("token_id") else c["user"]
             has = bool(c.get("token_secret") or c.get("password"))
-            auth = ("API token" if c.get("token_id") else "Contraseña") + ("" if has else " (falta secreto)")
+            auth = (_("API token") if c.get("token_id") else _("Contraseña")) + ("" if has else _(" (falta secreto)"))
             self.conn_list.insert("", "end", values=(c["host"], who, auth))
 
     def _save(self):
@@ -356,8 +393,8 @@ class App(tk.Tk):
             conns = [c]
         missing = [c["host"] for c in conns if not (c.get("token_secret") or c.get("password"))]
         if missing:
-            messagebox.showwarning(APP_NAME, "Falta el secreto/contraseña de: " + ", ".join(missing) +
-                                   "\nSelecciónala en la lista, escríbelo y pulsa 'Añadir a la lista'.")
+            messagebox.showwarning(APP_NAME, _("Falta el secreto/contraseña de: ") + ", ".join(missing) +
+                                   _("\nSelecciónala en la lista, escríbelo y pulsa 'Añadir a la lista'."))
             return
         self.btn_run.configure(state="disabled")
         agent = self.v_agent.get()
@@ -382,15 +419,15 @@ class App(tk.Tk):
         return box.get("code")
 
     def _ask_tfa(self, host, user, methods, error):
-        self.status.set(f"{host}: la cuenta {user} pide segundo factor (2FA)")
-        what = "el código de 6 dígitos de tu app de autenticación (TOTP)" if "totp" in methods else "el código"
-        extra = [METHOD_NAMES[m] for m in ("recovery", "yubico") if m in methods]
+        self.status.set(_("{host}: la cuenta {user} pide segundo factor (2FA)", host=host, user=user))
+        what = _("el código de 6 dígitos de tu app de autenticación (TOTP)") if "totp" in methods else _("el código")
+        extra = [_(METHOD_NAMES[m]) for m in ("recovery", "yubico") if m in methods]
         if extra:
-            what += ", o un " + " o un ".join(extra)
-        prompt = (f"La cuenta {user} en {host} tiene segundo factor (2FA).\n\nEscribe {what}:"
+            what += _(", o un ") + _(" o un ").join(extra)
+        prompt = (_("La cuenta {user} en {host} tiene segundo factor (2FA).\n\nEscribe {what}:", user=user, host=host, what=what)
                   + (f"\n\n⚠ {error}" if error else "")
-                  + "\n\nConsejo: con un API token de solo lectura no se pide 2FA (ver README).")
-        code = simpledialog.askstring(f"{APP_NAME} — segundo factor", prompt, parent=self)
+                  + _("\n\nConsejo: con un API token de solo lectura no se pide 2FA (ver README)."))
+        code = simpledialog.askstring(_("{app} — segundo factor", app=APP_NAME), prompt, parent=self)
         return code.strip() if code and code.strip() else None
 
     def _poll(self):
@@ -413,13 +450,13 @@ class App(tk.Tk):
                     payload = self.sheets
                     errs = [s for s in payload["vSource"] if str(s.get("Estado", "")).startswith("ERROR")]
                     vms = len(payload["vInfo"])
-                    self.status.set(f"Inventario completado: {vms} VMs/CTs, {len(payload['vHost'])} nodos"
-                                    + (f" — {len(errs)} conexión(es) con error (ver vSource)" if errs else ""))
+                    self.status.set(_("Inventario completado: {vms} VMs/CTs, {n_vhost} nodos", vms=vms, n_vhost=len(payload['vHost']))
+                                    + (_(" — {n_errs} conexión(es) con error (ver vSource)", n_errs=len(errs)) if errs else ""))
                     self.btn_run.configure(state="normal")
                     if errs:
                         self._show_sheet("vSource")
                 elif kind == "error":
-                    self.status.set("Error: " + payload)
+                    self.status.set(_("Error: ") + payload)
                     messagebox.showerror(APP_NAME, payload)
                     self.btn_run.configure(state="normal")
         except queue.Empty:
@@ -435,8 +472,8 @@ class App(tk.Tk):
         tree.delete(*tree.get_children())
         tree["columns"] = cols
         for c in cols:
-            tree.heading(c, text=c, command=lambda c=c, n=name: self._sort(n, c))
-            w = max([len(c)] + [len(str(r.get(c) or "")) for r in rows[:200]]) * 7 + 16
+            tree.heading(c, text=_(c), command=lambda c=c, n=name: self._sort(n, c))
+            w = max([len(_(c))] + [len(str(r.get(c) or "")) for r in rows[:200]]) * 7 + 16
             tree.column(c, width=min(max(w, 60), 380), anchor="w", stretch=False)
         f = t["filter"].get().strip().lower()
         col, rev = t["sort"]
@@ -444,12 +481,12 @@ class App(tk.Tk):
             rows = sorted(rows, key=lambda r: (r.get(col) is None, _sort_key(r.get(col))), reverse=rev)
         shown = 0
         for r in rows:
-            vals = ["" if r.get(c) is None else r.get(c) for c in cols]
+            vals = ["" if r.get(c) is None else cell_out(t["key"], c, r.get(c)) for c in cols]
             if f and f not in " ".join(str(v) for v in vals).lower():
                 continue
             tree.insert("", "end", values=vals, tags=(str(r.get("Severidad") or r.get("Resultado") or ""),))
             shown += 1
-        t["count"].configure(text=f"{shown} de {len(self.sheets.get(t['key'], []))} filas")
+        t["count"].configure(text=_("{shown} de {n_get} filas", shown=shown, n_get=len(self.sheets.get(t['key'], []))))
 
     def _sort(self, name, col):
         prev, rev = self.tabs[name]["sort"]
@@ -459,7 +496,7 @@ class App(tk.Tk):
     # ------------------------------------------------------------------ exportar
     def _need_data(self):
         if not self.sheets:
-            messagebox.showinfo(APP_NAME, "Primero lanza un inventario.")
+            messagebox.showinfo(APP_NAME, _("Primero lanza un inventario."))
             return False
         return True
 
@@ -467,7 +504,7 @@ class App(tk.Tk):
         self.chk_keepip.configure(state="normal" if self.v_anon.get() else "disabled")
 
     def _anon_help(self):
-        messagebox.showinfo(APP_NAME, ANON_HELP)
+        messagebox.showinfo(APP_NAME, _(ANON_HELP))
 
     def _export_sheets(self, target: str):
         """Hojas a exportar: las reales o, si se pidió, las anonimizadas (y guarda la correspondencia)."""
@@ -481,14 +518,12 @@ class App(tk.Tk):
         return sheets, map_path
 
     def _anon_done(self, what: str, map_path: str):
-        messagebox.showinfo(APP_NAME, f"{what} anonimizado guardado.\n\nLa correspondencia con los datos reales está en:\n"
-                                      f"{map_path}\n\nEse fichero es CONFIDENCIAL: guárdalo y NO lo envíes junto al "
-                                      "inventario. Sirve para revertir los seudónimos (botón «Revertir anonimización…»).")
+        messagebox.showinfo(APP_NAME, _("{what} anonimizado guardado.\n\nLa correspondencia con los datos reales está en:\n{map_path}\n\nEse fichero es CONFIDENCIAL: guárdalo y NO lo envíes junto al inventario. Sirve para revertir los seudónimos (botón «Revertir anonimización…»).", what=what, map_path=map_path))
 
     def _export_xlsx(self):
         if not self._need_data():
             return
-        suffix = "_anonimo" if self.v_anon.get() else ""
+        suffix = _("_anonimo") if self.v_anon.get() else ""
         default = f"pve_inventory_{dt.datetime.now():%Y%m%d_%H%M%S}{suffix}.xlsx"
         p = filedialog.asksaveasfilename(defaultextension=".xlsx", initialfile=default, initialdir=self._export_dir(),
                                          filetypes=[("Excel", "*.xlsx")])
@@ -496,22 +531,22 @@ class App(tk.Tk):
             return
         p = os.path.abspath(ensure_ext(os.path.normpath(p), ".xlsx"))
         self._remember_export_dir(os.path.dirname(p))
-        self.status.set(f"Guardando {p}…")
+        self.status.set(_("Guardando {p}…", p=p))
         self.config(cursor="watch")
         self.update_idletasks()
         try:
             sheets, map_path = self._export_sheets(p)
             p = to_xlsx(sheets, p)
         except Exception as exc:  # noqa: BLE001
-            self.status.set("No se pudo guardar el Excel")
+            self.status.set(_("No se pudo guardar el Excel"))
             messagebox.showerror(APP_NAME, explain(exc, p))
             return
         finally:
             self.config(cursor="")
-        self.status.set(f"Excel{' anonimizado' if map_path else ''} guardado en {p}")
+        self.status.set(_("Excel anonimizado guardado en {p}", p=p) if map_path else _("Excel guardado en {p}", p=p))
         if map_path:
-            self._anon_done("Excel", map_path)
-        self._saved_dialog("Excel guardado en:", p)
+            self._anon_done(_("Excel"), map_path)
+        self._saved_dialog(_("Excel guardado en:"), p)
 
     def _saved_dialog(self, title: str, path: str):
         """Muestra la ruta completa y ofrece abrir el fichero o la carpeta."""
@@ -529,9 +564,9 @@ class App(tk.Tk):
         bar = ttk.Frame(frm)
         bar.pack(anchor="e")
         if os.path.isfile(path) and os.name == "nt":
-            ttk.Button(bar, text="Abrir", command=lambda: (os.startfile(path), d.destroy())).pack(side="left", padx=4)  # noqa: S606
-        ttk.Button(bar, text="Mostrar en la carpeta", command=lambda: (reveal(path), d.destroy())).pack(side="left", padx=4)
-        ttk.Button(bar, text="Cerrar", command=d.destroy).pack(side="left", padx=4)
+            ttk.Button(bar, text=_("Abrir"), command=lambda: (os.startfile(path), d.destroy())).pack(side="left", padx=4)  # noqa: S606
+        ttk.Button(bar, text=_("Mostrar en la carpeta"), command=lambda: (reveal(path), d.destroy())).pack(side="left", padx=4)
+        ttk.Button(bar, text=_("Cerrar"), command=d.destroy).pack(side="left", padx=4)
         d.grab_set()
 
     def _export_dir(self) -> str:
@@ -545,7 +580,7 @@ class App(tk.Tk):
     def _export_csv(self):
         if not self._need_data():
             return
-        d = filedialog.askdirectory(title="Carpeta donde guardar los CSV", initialdir=self._export_dir())
+        d = filedialog.askdirectory(title=_("Carpeta donde guardar los CSV"), initialdir=self._export_dir())
         if not d:
             return
         d = os.path.abspath(os.path.normpath(d))
@@ -554,35 +589,35 @@ class App(tk.Tk):
             sheets, map_path = self._export_sheets(d)
             to_csv(sheets, d)
         except Exception as exc:  # noqa: BLE001
-            self.status.set("No se pudieron guardar los CSV")
+            self.status.set(_("No se pudieron guardar los CSV"))
             messagebox.showerror(APP_NAME, explain(exc, d))
             return
-        self.status.set(f"CSV{' anonimizados' if map_path else ''} guardados en {d}")
+        self.status.set(_("CSV anonimizados guardados en {d}", d=d) if map_path else _("CSV guardados en {d}", d=d))
         if map_path:
             self._anon_done("CSV", map_path)
-        self._saved_dialog("CSV guardados en la carpeta:", d)
+        self._saved_dialog(_("CSV guardados en la carpeta:"), d)
 
     def _revert(self):
-        files = filedialog.askopenfilenames(title="Excel/CSV anonimizado (inventario o plan) a revertir",
-                                            filetypes=[("Excel o CSV", "*.xlsx *.csv"), ("Todos", "*.*")])
+        files = filedialog.askopenfilenames(title=_("Excel/CSV anonimizado (inventario o plan) a revertir"),
+                                            filetypes=[(_("Excel o CSV"), "*.xlsx *.csv"), (_("Todos"), "*.*")])
         if not files:
             return
-        m = filedialog.askopenfilename(title="Fichero de correspondencia (…_correspondencia_CONFIDENCIAL.xlsx)",
+        m = filedialog.askopenfilename(title=_("Fichero de correspondencia (…_correspondencia_CONFIDENCIAL.xlsx)"),
                                        filetypes=[("Excel", "*.xlsx")])
         if not m:
             return
         try:
             out = [os.path.abspath(reverse_file(f, m)) for f in files]
         except Exception as e:  # noqa: BLE001
-            messagebox.showerror(APP_NAME, "No se pudo revertir: " + explain(e, files[0]))
+            messagebox.showerror(APP_NAME, _("No se pudo revertir: ") + explain(e, files[0]))
             return
-        self.status.set(f"Revertido: {', '.join(out)}")
-        messagebox.showinfo(APP_NAME, "Ficheros con los nombres reales:\n\n" + "\n".join(out) +
-                            "\n\nLos comentarios y descripciones que se vaciaron al anonimizar no se pueden recuperar.")
+        self.status.set(_("Revertido: {out}", out=', '.join(out)))
+        messagebox.showinfo(APP_NAME, _("Ficheros con los nombres reales:\n\n") + "\n".join(out) +
+                            _("\n\nLos comentarios y descripciones que se vaciaron al anonimizar no se pueden recuperar."))
 
 
 ANON_HELP = (
-    "Al exportar con «Anonimizar», el Excel/CSV no contiene datos identificativos del cliente:\n\n"
+    N_("Al exportar con «Anonimizar», el Excel/CSV no contiene datos identificativos del cliente:\n\n"
     "• Nombres de clústeres, nodos, VMs/CTs, hostnames, dominios, almacenamientos, pools, etiquetas, usuarios, "
     "grupos, zonas/VNets/controladores/IPAM/DNS de SDN, objetos de firewall, snapshots, ISOs y nº de serie → seudónimos (CLUSTER-01, "
     "NODO-01, VM-0001, STORAGE-01…). El mismo valor recibe siempre el mismo seudónimo en todas las hojas.\n"
@@ -592,7 +627,7 @@ ANON_HELP = (
     "(vmbrN), los nombres por defecto de Proxmox (local, local-lvm, root@pam…) y las relaciones VM-nodo-red-"
     "almacenamiento, de modo que el inventario anonimizado sirve igual para planificar la migración.\n\n"
     "La correspondencia real ↔ seudónimo se guarda en un fichero aparte («…_correspondencia_CONFIDENCIAL.xlsx») "
-    "que se queda el cliente. Si exportas de nuevo con el mismo nombre, se reutiliza y los seudónimos no cambian."
+    "que se queda el cliente. Si exportas de nuevo con el mismo nombre, se reutiliza y los seudónimos no cambian.")
 )
 
 
@@ -607,11 +642,20 @@ def _report_error(app):
     def handler(exc, val, tb):
         import traceback
         detail = "".join(traceback.format_exception(exc, val, tb))
-        messagebox.showerror(APP_NAME, f"Error inesperado: {val}\n\n{detail[-1500:]}")
+        messagebox.showerror(APP_NAME, _("Error inesperado: {val}\n\n{detail}", val=val, detail=detail[-1500:]))
     app.report_callback_exception = handler
 
 
+def _settings_lang():
+    try:
+        with open(SETTINGS_FILE, encoding="utf-8") as f:
+            return (json.load(f) or {}).get("lang")
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def main():
+    set_lang(detect(_settings_lang()))
     app = App()
     _report_error(app)
     app.mainloop()

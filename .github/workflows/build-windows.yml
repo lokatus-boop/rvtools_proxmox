@@ -29,7 +29,7 @@ jobs:
       - run: dist\pveinventory-cli.exe --version
       - name: Smoke test (genera un Excel aunque no haya servidor)
         run: |
-          dist\pveinventory-cli.exe --host 127.0.0.1:1 --user x@pam --password x -q -o smoke.xlsx
+          dist\pveinventory-cli.exe --host 127.0.0.1:1 --user x@pam --password x -q -o smoke.xlsx --lang en
           if (!(Test-Path smoke.xlsx)) { exit 1 }
           exit 0
       - uses: actions/upload-artifact@v4

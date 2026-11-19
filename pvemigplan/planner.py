@@ -5,6 +5,8 @@ import datetime as dt
 import math
 import re
 
+from pvetools.i18n import N_, _
+
 from .analysis import LEGACY_OS, Analysis
 from .catalog import load_catalog
 from .scenario import PBS_VERSIONS, STORAGE_TYPES
@@ -13,22 +15,25 @@ from .sizing import advise, evaluate, expand, node_overhead_gib, nodes_from_hard
 CRIT_TAGS = re.compile(r"(crit|core|erp|sql|oracle|\bdb|^db|dc\d*$|^dc|\bad\b|sap)", re.I)
 TEST_TAGS = re.compile(r"(test|dev|pre|lab|demo|qa|sandbox|temp)", re.I)
 BLOQUEO, AVISO, INFO = "BLOQUEO", "AVISO", "INFO"
+WAVE_TYPES = (N_("Piloto"), N_("Con bloqueos"), N_("Críticas"), N_("Estándar"))
 
 
 def sdn_target(v) -> str:
     """Destino de una red de VMs que en origen es una VNet de SDN: se recrea la misma zona y VNet."""
     t, z, n, tag = v["zone_type"], v["zone"], v["bridge"], v["sdn_tag"]
     if t == "vlan":
-        return f"SDN zona {z} (VLAN) sobre vmbr1 · VNet {n}, tag {tag}"
+        return _("SDN zona {z} (VLAN) sobre vmbr1 · VNet {n}, tag {tag}", z=z, n=n, tag=tag)
     if t == "qinq":
-        return f"SDN zona {z} (QinQ) sobre vmbr1 · VNet {n}, tag {tag}"
+        return _("SDN zona {z} (QinQ) sobre vmbr1 · VNet {n}, tag {tag}", z=z, n=n, tag=tag)
     if t == "vxlan":
-        return f"SDN zona {z} (VXLAN, peers = IPs de los nodos nuevos) · VNet {n}, VNI {tag}"
+        return _("SDN zona {z} (VXLAN, peers = IPs de los nodos nuevos) · VNet {n}, VNI {tag}", z=z, n=n, tag=tag)
     if t == "evpn":
-        return f"SDN zona {z} (EVPN" + (f", controlador {v['controller']}" if v.get("controller") else "") + f") · VNet {n}, VNI {tag}"
+        if v.get("controller"):
+            return _("SDN zona {z} (EVPN, controlador {controller}) · VNet {n}, VNI {tag}", z=z, controller=v["controller"], n=n, tag=tag)
+        return _("SDN zona {z} (EVPN) · VNet {n}, VNI {tag}", z=z, n=n, tag=tag)
     if t == "simple":
-        return f"SDN zona {z} (simple, local a cada nodo) · VNet {n}"
-    return f"SDN VNet {n}" + (f" (tag {tag})" if tag else "")
+        return _("SDN zona {z} (simple, local a cada nodo) · VNet {n}", z=z, n=n)
+    return _("SDN VNet {n}", n=n) + (_(" (tag {tag})", tag=tag) if tag else "")
 
 
 class PlanError(Exception):
@@ -51,13 +56,13 @@ class Plan:
         if sc["modo"] == "aconsejar":
             self.options = advise(self.an, sc, self.cat)
             if not self.options:
-                raise PlanError("Ninguna configuración del catálogo cubre las necesidades: revisa los parámetros.")
+                raise PlanError(_("Ninguna configuración del catálogo cubre las necesidades: revisa los parámetros."))
             self.groups = self.options[0]["nodos"]
             self.eval = self.options[0]["eval"]
         else:
             self.groups = nodes_from_hardware(sc)
             if not expand(self.groups):
-                raise PlanError("Indica al menos un servidor de destino.")
+                raise PlanError(_("Indica al menos un servidor de destino."))
             self.eval = evaluate(self.groups, sc, self.req)
         self.nodes = self._name_nodes()
         self.placement = self._place()
@@ -123,10 +128,10 @@ class Plan:
             if v["sdn"]:
                 target = sdn_target(v)
             elif v["vlan"]:
-                target = f"vmbr1 · VLAN {v['vlan']}  (o VNet SDN «vlan{v['vlan']}»)"
+                target = _("vmbr1 · VLAN {vlan}  (o VNet SDN «vlan{vlan}»)", vlan=v['vlan'])
             else:
-                target = "vmbr1 · VLAN nativa → definir VLAN explícita"
-            rows.append({"Bridge origen": v["bridge"], "VLAN origen": v["vlan"] or "(sin etiqueta)",
+                target = _("vmbr1 · VLAN nativa → definir VLAN explícita")
+            rows.append({"Bridge origen": v["bridge"], "VLAN origen": v["vlan"] or _("(sin etiqueta)"),
                          "Clústeres": ", ".join(v["clusters"]), "NICs de VMs": v["vms"],
                          "SDN origen": f"{v['zone']} / {v['subnet'] or ''}" if v["sdn"] else "",
                          "Destino propuesto": target, "Tipo zona SDN origen": v["zone_type"]})
@@ -147,50 +152,50 @@ class Plan:
             add = lambda sev, cat, msg: out.append({"Severidad": sev, "Clúster": g.cluster, "VMID": g.vmid, "Nombre": g.name,  # noqa: E731
                                                     "Categoría": cat, "Detalle": msg})
             if g.passthrough:
-                add(BLOQUEO, "Hardware", f"Dispositivo PCI/USB en passthrough ({g.passthrough}): requiere hardware equivalente en destino y migración en frío.")
+                add(BLOQUEO, _("Hardware"), _("Dispositivo PCI/USB en passthrough ({passthrough}): requiere hardware equivalente en destino y migración en frío.", passthrough=g.passthrough))
             if g.lock:
-                add(BLOQUEO, "Estado", f"VM bloqueada ({g.lock}): resolver antes de migrar.")
+                add(BLOQUEO, _("Estado"), _("VM bloqueada ({lock}): resolver antes de migrar.", lock=g.lock))
             if g.snapshots:
-                add(AVISO, "Snapshots", f"{g.snapshots} snapshot(s): la migración entre clústeres no las conserva; consolidarlas antes.")
+                add(AVISO, _("Snapshots"), _("{snapshots} snapshot(s): la migración entre clústeres no las conserva; consolidarlas antes.", snapshots=g.snapshots))
             if g.cdrom_iso:
-                add(AVISO, "CD-ROM", "ISO montada (" + ", ".join(g.cdrom_iso) + "): desmontar antes de migrar.")
+                add(AVISO, _("CD-ROM"), _("ISO montada ({iso}): desmontar antes de migrar.", iso=", ".join(g.cdrom_iso)))
             if g.cpu_type == "host" and (len(src_vendors) > 1 or (tgt_vendor and src_vendors and tgt_vendor not in src_vendors)):
-                add(AVISO, "CPU", "Tipo de CPU «host» con cambio de fabricante/generación: cambiar a x86-64-v2-AES o x86-64-v3 (requiere reinicio).")
+                add(AVISO, _("CPU"), _("Tipo de CPU «host» con cambio de fabricante/generación: cambiar a x86-64-v2-AES o x86-64-v3 (requiere reinicio)."))
             elif g.cpu_type == "host":
-                add(INFO, "CPU", "Tipo de CPU «host»: valida que el destino tiene la misma generación o usa un modelo genérico.")
+                add(INFO, _("CPU"), _("Tipo de CPU «host»: valida que el destino tiene la misma generación o usa un modelo genérico."))
             if g.kind == "VM" and g.ostype in LEGACY_OS:
-                add(AVISO, "Sistema operativo", f"SO antiguo ({g.os_label}): drivers VirtIO y soporte limitados; probar en la ola piloto.")
+                add(AVISO, _("Sistema operativo"), _("SO antiguo ({os_label}): drivers VirtIO y soporte limitados; probar en la ola piloto.", os_label=g.os_label))
             if g.kind == "CT" and target_major >= 9 and re.search(r"centos|el7|7\.", (g.ostype + " " + g.guest_os).lower()):
-                add(AVISO, "Contenedor", "Contenedor con sistema antiguo: PVE 9 solo admite cgroup v2 (systemd moderno). Verificar que arranca.")
+                add(AVISO, _("Contenedor"), _("Contenedor con sistema antiguo: PVE 9 solo admite cgroup v2 (systemd moderno). Verificar que arranca."))
             if g.kind == "VM" and not g.agent:
-                add(INFO, "Agente", "Sin agente QEMU: no se conocen IPs ni espacio usado y el apagado/fs-freeze es menos fiable.")
+                add(INFO, _("Agente"), _("Sin agente QEMU: no se conocen IPs ni espacio usado y el apagado/fs-freeze es menos fiable."))
             if not g.last_backup:
-                add(AVISO, "Backup", "Sin backup registrado: hacer copia antes de migrar.")
+                add(AVISO, _("Backup"), _("Sin backup registrado: hacer copia antes de migrar."))
             if g.disk_prov_gib > 4096:
-                add(INFO, "Tamaño", f"Disco grande ({g.disk_prov_gib/1024:.1f} TiB): planificar ventana amplia o migración en caliente.")
+                add(INFO, _("Tamaño"), _("Disco grande ({disk_prov_gib:.1f} TiB): planificar ventana amplia o migración en caliente.", disk_prov_gib=g.disk_prov_gib/1024))
             if g.ha:
-                add(INFO, "HA", "Recurso HA: retirarlo de HA en origen antes de migrar y darlo de alta en destino.")
+                add(INFO, _("HA"), _("Recurso HA: retirarlo de HA en origen antes de migrar y darlo de alta en destino."))
         # generales
-        gen = lambda sev, cat, msg: out.append({"Severidad": sev, "Clúster": "(general)", "VMID": "", "Nombre": "",  # noqa: E731
+        gen = lambda sev, cat, msg: out.append({"Severidad": sev, "Clúster": _("(general)"), "VMID": "", "Nombre": "",  # noqa: E731
                                                 "Categoría": cat, "Detalle": msg})
         for p in self.eval["problemas"]:
-            gen(BLOQUEO, "Capacidad", p)
+            gen(BLOQUEO, _("Capacidad"), p)
         for a in self.eval["avisos"]:
-            gen(AVISO, "Capacidad", a)
+            gen(AVISO, _("Capacidad"), a)
         vers = self.an.pve_versions()
         if self.migrate and any(v.startswith(("6.", "7.")) for v in vers):
-            gen(AVISO, "Versiones", f"Origen en PVE {', '.join(vers)}: «qm remote-migrate» requiere PVE 7.3 o superior; si no, backup/restore.")
+            gen(AVISO, _("Versiones"), _("Origen en PVE {vers}: «qm remote-migrate» requiere PVE 7.3 o superior; si no, backup/restore.", vers=', '.join(vers)))
         if self.pbs:
             for a in self.pbs["avisos"]:
-                gen(AVISO, "PBS", a)
+                gen(AVISO, _("PBS"), a)
         h = self.an.health_counts()
         if h.get("CRÍTICO") and self.migrate:
-            gen(AVISO, "Salud origen", f"El inventario tiene {h['CRÍTICO']} avisos críticos (hoja vHealth): revisar antes de migrar.")
+            gen(AVISO, _("Salud origen"), _("El inventario tiene {critico} avisos críticos (hoja vHealth): revisar antes de migrar.", critico=h['CRÍTICO']))
         for n in self.req.notes:
-            gen(INFO, "Dimensionado", n)
+            gen(INFO, _("Dimensionado"), n)
         if not self.has_load:
-            gen(INFO, "Alcance", "Sin VMs/CTs en el alcance: se documenta la nueva plataforma sin plan de migración"
-                + (". El hardware aconsejado es la configuración mínima; indica el real en «Usar el hardware disponible»."
+            gen(INFO, _("Alcance"), _("Sin VMs/CTs en el alcance: se documenta la nueva plataforma sin plan de migración")
+                + (_(". El hardware aconsejado es la configuración mínima; indica el real en «Usar el hardware disponible».")
                    if self.sc["modo"] == "aconsejar" else "."))
         order = {BLOQUEO: 0, AVISO: 1, INFO: 2}
         out.sort(key=lambda r: (order[r["Severidad"]], r["Clúster"], str(r["VMID"])))
@@ -202,27 +207,27 @@ class Plan:
         if m == "auto":
             m = "pbs" if self.pbs else "remote-migrate"
         if m == "pbs":
-            return {"id": "pbs", "nombre": "Backup y restauración a través del nuevo Proxmox Backup Server",
+            return {"id": "pbs", "nombre": _("Backup y restauración a través del nuevo Proxmox Backup Server"),
                     "pasos": [
-                        "Instalar el PBS nuevo y añadirlo como almacenamiento en el clúster de ORIGEN y en el de DESTINO.",
-                        "Días antes: backup completo de cada VM al PBS nuevo (la deduplicación hace que los siguientes sean incrementales).",
-                        "En la ventana: apagar la VM, backup final (solo bloques cambiados), restaurar en destino "
-                        "(con «live-restore» la VM arranca mientras se restaura).",
-                        "Ajustar bridge/VLAN si cambia, arrancar, validar y retirar la VM origen (no borrar hasta el cierre).",
+                        _("Instalar el PBS nuevo y añadirlo como almacenamiento en el clúster de ORIGEN y en el de DESTINO."),
+                        _("Días antes: backup completo de cada VM al PBS nuevo (la deduplicación hace que los siguientes sean incrementales)."),
+                        _("En la ventana: apagar la VM, backup final (solo bloques cambiados), restaurar en destino "
+                        "(con «live-restore» la VM arranca mientras se restaura)."),
+                        _("Ajustar bridge/VLAN si cambia, arrancar, validar y retirar la VM origen (no borrar hasta el cierre)."),
                     ],
-                    "ventajas": "No requiere conectividad directa entre clústeres; deja el backup del entorno nuevo funcionando desde el primer día; "
-                                "permite volver atrás arrancando la VM de origen.",
-                    "parada": "Minutos a horas por VM (backup final + restauración; con live-restore, solo el backup final)."}
-        return {"id": "remote-migrate", "nombre": "Migración entre clústeres con «qm/pct remote-migrate»",
+                    "ventajas": _("No requiere conectividad directa entre clústeres; deja el backup del entorno nuevo funcionando desde el primer día; "
+                                "permite volver atrás arrancando la VM de origen."),
+                    "parada": _("Minutos a horas por VM (backup final + restauración; con live-restore, solo el backup final).")}
+        return {"id": "remote-migrate", "nombre": _("Migración entre clústeres con «qm/pct remote-migrate»"),
                 "pasos": [
-                    "Crear en DESTINO un usuario/API token con permisos de migración y obtener la huella del certificado.",
-                    "Para cada VM: qm remote-migrate <vmid> <vmid-destino> 'host=<ip>,apitoken=PVEAPIToken=<id>=<secret>,fingerprint=<huella>' "
-                    "--target-bridge vmbr1 --target-storage <almacenamiento> --online",
-                    "Los contenedores se migran con «pct remote-migrate … --restart» (parada breve).",
-                    "Validar, retirar HA en origen / darlo de alta en destino y eliminar la VM de origen tras el cierre.",
+                    _("Crear en DESTINO un usuario/API token con permisos de migración y obtener la huella del certificado."),
+                    _("Para cada VM: qm remote-migrate <vmid> <vmid-destino> 'host=<ip>,apitoken=PVEAPIToken=<id>=<secret>,fingerprint=<huella>' "
+                    "--target-bridge vmbr1 --target-storage <almacenamiento> --online"),
+                    _("Los contenedores se migran con «pct remote-migrate … --restart» (parada breve)."),
+                    _("Validar, retirar HA en origen / darlo de alta en destino y eliminar la VM de origen tras el cierre."),
                 ],
-                "ventajas": "Migración en caliente de VMs (parada de segundos); no necesita almacenamiento intermedio.",
-                "parada": "Segundos para VMs en caliente; reinicio para contenedores. Función marcada como experimental en Proxmox: probar en la ola piloto."}
+                "ventajas": _("Migración en caliente de VMs (parada de segundos); no necesita almacenamiento intermedio."),
+                "parada": _("Segundos para VMs en caliente; reinicio para contenedores. Función marcada como experimental en Proxmox: probar en la ola piloto.")}
 
     def _waves(self):
         mig = self.sc["migracion"]
@@ -244,7 +249,7 @@ class Plan:
         rest.sort(key=lambda g: (g.key in blockers, bool(crit(g)), g.cluster, g.pool, g.name.lower()))
         waves = []
         if pilot_c:
-            waves.append({"nombre": "Ola 0 · Piloto", "tipo": "Piloto", "guests": pilot_c})
+            waves.append({"nombre": _("Ola 0 · Piloto"), "tipo": "Piloto", "guests": pilot_c})
         cur, gib = [], 0.0
         cur_kind = None
         for g in rest:
@@ -267,7 +272,7 @@ class Plan:
         gap = 7 / per_week
         for i, w in enumerate(waves):
             if not w["nombre"]:
-                w["nombre"] = f"Ola {i}" + (f" · {w['tipo']}" if w["tipo"] != "Estándar" else "")
+                w["nombre"] = _("Ola {i}", i=i) + (" · " + _(w["tipo"]) if w["tipo"] != "Estándar" else "")
             data = sum(g.disk_effective_gib for g in w["guests"])
             w["gib"] = data
             w["horas"] = data / gibh if gibh else 0
@@ -287,7 +292,7 @@ class Plan:
         s = {
             "cliente": self.sc.get("cliente") or "", "modo": self.sc["modo"], "pve": self.sc["pve_version"],
             "pbs_ver": PBS_VERSIONS.get(self.sc["pve_version"], "4.x"),
-            "almacenamiento": STORAGE_TYPES.get(self.storage_type, self.storage_type),
+            "almacenamiento": _(STORAGE_TYPES.get(self.storage_type, self.storage_type)),
             "vms": t["vms"], "cts": t["cts"], "vcpu": t["vcpu"], "ram_gib": t["ram_gib"],
             "disk_prov_tib": t["disk_prov_gib"] / 1024, "disk_eff_tib": t["disk_eff_gib"] / 1024,
             "hosts_origen": t["hosts"], "clusters_origen": t["clusters"],
@@ -309,44 +314,39 @@ class Plan:
         if not s["carga"]:
             return self._text_summary_no_load(s)
         lines = [
-            f"Origen: {s['vms']} VMs y {s['cts']} CTs en {s['hosts_origen']} nodos ({s['clusters_origen']} clúster(es)); "
-            f"{s['vcpu']:.0f} vCPU, {s['ram_gib']:.0f} GiB RAM, {s['disk_eff_tib']:.1f} TiB de datos "
-            f"({s['disk_prov_tib']:.1f} TiB aprovisionados).",
-            f"Necesidades (con crecimiento): {self.req.cores:.0f} cores físicos, {self.req.ram_need_gib:.0f} GiB de RAM, "
-            f"{self.req.data_gib/1024:.1f} TiB útiles.",
+            _("Origen: {vms} VMs y {cts} CTs en {hosts_origen} nodos ({clusters_origen} clúster(es)); {vcpu:.0f} vCPU, {ram_gib:.0f} GiB RAM, {disk_eff_tib:.1f} TiB de datos ({disk_prov_tib:.1f} TiB aprovisionados).", vms=s['vms'], cts=s['cts'], hosts_origen=s['hosts_origen'], clusters_origen=s['clusters_origen'], vcpu=s['vcpu'], ram_gib=s['ram_gib'], disk_eff_tib=s['disk_eff_tib'], disk_prov_tib=s['disk_prov_tib']),
+            _("Necesidades (con crecimiento): {cores:.0f} cores físicos, {ram_need_gib:.0f} GiB de RAM, {data_gib:.1f} TiB útiles.", cores=self.req.cores, ram_need_gib=self.req.ram_need_gib, data_gib=self.req.data_gib/1024),
         ]
         self._target_lines(s, lines)
         if self.migrate:
-            lines.append(f"Migración: {s['metodo']} en {s['olas']} olas"
-                         + (f" (~{s['semanas']} semanas)" if s.get("semanas") else "") + ".")
+            lines.append(_("Migración: {metodo} en {olas} olas", metodo=s['metodo'], olas=s['olas'])
+                         + (_(" (~{semanas} semanas)", semanas=s['semanas']) if s.get("semanas") else "") + ".")
         else:
-            lines.append("Sin migración: solo se documenta la nueva plataforma (la carga del inventario se usa para dimensionar).")
-        lines.append(f"Riesgos: {s['bloqueos']} bloqueos, {s['avisos']} avisos (ver hoja/apartado de riesgos).")
+            lines.append(_("Sin migración: solo se documenta la nueva plataforma (la carga del inventario se usa para dimensionar)."))
+        lines.append(_("Riesgos: {bloqueos} bloqueos, {avisos} avisos (ver hoja/apartado de riesgos).", bloqueos=s['bloqueos'], avisos=s['avisos']))
         return "\n".join(lines)
 
     def _text_summary_no_load(self, s) -> str:
-        lines = ["Sin VMs/CTs en el alcance: documentación de la nueva plataforma, sin plan de migración."]
+        lines = [_("Sin VMs/CTs en el alcance: documentación de la nueva plataforma, sin plan de migración.")]
         if s["hosts_origen"]:
-            lines.append(f"Inventario cargado: {s['hosts_origen']} servidores en {s['clusters_origen']} clúster(es), sin VMs/CTs.")
+            lines.append(_("Inventario cargado: {hosts_origen} servidores en {clusters_origen} clúster(es), sin VMs/CTs.", hosts_origen=s['hosts_origen'], clusters_origen=s['clusters_origen']))
         self._target_lines(s, lines, with_load=False)
         if s["avisos"] or s["bloqueos"]:
-            lines.append(f"Puntos a revisar: {s['bloqueos']} bloqueos, {s['avisos']} avisos.")
+            lines.append(_("Puntos a revisar: {bloqueos} bloqueos, {avisos} avisos.", bloqueos=s['bloqueos'], avisos=s['avisos']))
         return "\n".join(lines)
 
     def _target_lines(self, s, lines, with_load=True):
         if self.options:
             for o in self.options:
                 n = o["nodos"][0]
-                lines.append(f"• {o['etiqueta']}: {n.count}× {n.model} · {n.cpu_label} · {n.ram_gib} GiB"
-                             + (f" · {n.data_disks}× {n.data_disk_tb} TB {n.data_disk_type}" if n.data_disks else "")
-                             + f"  ({o['eval']['sockets']} sockets)")
-        lines.append(f"Destino: {s['nodos']} nodos, {s['cores']} cores, {s['ram_dest_gib']} GiB RAM, "
-                     f"{s['util_tib']:.1f} TiB útiles ({s['almacenamiento']}), Proxmox VE {s['pve']}.")
+                lines.append(_("• {etiqueta}: {count}× {model} · {cpu_label} · {ram_gib} GiB", etiqueta=o['etiqueta'], count=n.count, model=n.model, cpu_label=n.cpu_label, ram_gib=n.ram_gib)
+                             + (_(" · {data_disks}× {data_disk_tb} TB {data_disk_type}", data_disks=n.data_disks, data_disk_tb=n.data_disk_tb, data_disk_type=n.data_disk_type) if n.data_disks else "")
+                             + _("  ({sockets} sockets)", sockets=o['eval']['sockets']))
+        lines.append(_("Destino: {nodos} nodos, {cores} cores, {ram_dest_gib} GiB RAM, {util_tib:.1f} TiB útiles ({almacenamiento}), Proxmox VE {pve}.", nodos=s['nodos'], cores=s['cores'], ram_dest_gib=s['ram_dest_gib'], util_tib=s['util_tib'], almacenamiento=s['almacenamiento'], pve=s['pve']))
         if with_load:
-            lines.append(f"Ocupación: CPU {s['cpu_pct']:.0f} % ({s['cpu_pct_n1']:.0f} % con N-{self.sc['capacidad']['n_mas']}), "
-                         f"RAM {s['ram_pct']:.0f} % ({s['ram_pct_n1']:.0f} % con N-{self.sc['capacidad']['n_mas']}).")
-            lines.append("Capacidad: " + ("OK" if s["ok"] else "INSUFICIENTE → " + "; ".join(self.eval["problemas"])))
+            lines.append(_("Ocupación: CPU {cpu_pct:.0f} % ({cpu_pct_n1:.0f} % con N-{n_mas}), RAM {ram_pct:.0f} % ({ram_pct_n1:.0f} % con N-{n_mas}).", cpu_pct=s['cpu_pct'], cpu_pct_n1=s['cpu_pct_n1'], n_mas=self.sc['capacidad']['n_mas'], ram_pct=s['ram_pct'], ram_pct_n1=s['ram_pct_n1']))
+            lines.append(_("Capacidad: ") + ("OK" if s["ok"] else _("INSUFICIENTE → ") + "; ".join(self.eval["problemas"])))
         if self.pbs:
             p = self.pbs
-            lines.append(f"PBS {s['pbs_ver']}: " + (f"{p['util_necesario_gib']/1024:.1f} TiB útiles · " if with_load else "")
-                         + f"{p['propuesta']['cores']} cores · {p['propuesta']['ram_gib']} GiB RAM · {p['propuesta']['discos']}")
+            lines.append(_("PBS {pbs_ver}: ", pbs_ver=s['pbs_ver']) + (_("{util_necesario_gib:.1f} TiB útiles · ", util_necesario_gib=p['util_necesario_gib']/1024) if with_load else "")
+                         + _("{cores} cores · {ram_gib} GiB RAM · {discos}", cores=p['propuesta']['cores'], ram_gib=p['propuesta']['ram_gib'], discos=p['propuesta']['discos']))

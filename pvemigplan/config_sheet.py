@@ -5,6 +5,8 @@ por el plan: puertos de los nodos, redes, switches, almacenamiento, PBS y datos 
 """
 from __future__ import annotations
 
+from pvetools.i18n import _
+
 import re
 
 from openpyxl import load_workbook
@@ -84,7 +86,7 @@ def fill(plan, template_path: str, out_path: str) -> str:
     wb = load_workbook(template_path)
     needed = {"Host Ports", "Networks", "Settings"}
     if not needed <= set(wb.sheetnames):
-        raise TemplateError("La plantilla no tiene las hojas «Host Ports», «Networks» y «Settings».")
+        raise TemplateError(_("La plantilla no tiene las hojas «Host Ports», «Networks» y «Settings»."))
     net = plan.net
     sc = plan.sc
     imp = defaults_from_inventory(plan)
@@ -138,7 +140,7 @@ def fill(plan, template_path: str, out_path: str) -> str:
             if tmpl or key.startswith("payload"):
                 _set(ws, r, 3, "n/a")
             continue
-        if n.get("vlan") and n["vlan"] not in ("-", "según inventario", "por definir"):
+        if n.get("vlan") and n["vlan"] not in ("-", _("según inventario"), _("por definir")):
             _set(ws, r, 3, n["vlan"])
         _set(ws, r, 6, n["mtu"] if n["mtu"] != "-" else None)
         _set(ws, r, 7, f"{n['gbps']:g} GbE")
@@ -150,11 +152,11 @@ def fill(plan, template_path: str, out_path: str) -> str:
             _set(ws, r, 11, f"{pattern}.{dom}" if dom else pattern)
     sens = end + 1 if end else None
     if sens:
-        text = (f"Clúster de {len(plan.nodes)} nodos {spec.model}. "
+        text = (_("Clúster de {n_nodes} nodos {model}. ", n_nodes=len(plan.nodes), model=spec.model)
                 + " ".join(f"{h['Device Name']}: {h['Usage']}." for h in net.host_ports[::2])
-                + f" Almacenamiento: {plan.storage_type.upper()}. "
-                + ("Incluye Proxmox Backup Server en la red de backup (VLAN en bond1). " if plan.pbs else "")
-                + "VLANs de VMs (Payload) trasladadas del entorno actual: " + (nets.get("Payload (VMs)", {}).get("vlan") or "-") + ".")
+                + _(" Almacenamiento: {upper}. ", upper=plan.storage_type.upper())
+                + (_("Incluye Proxmox Backup Server en la red de backup (VLAN en bond1). ") if plan.pbs else "")
+                + _("VLANs de VMs (Payload) trasladadas del entorno actual: ") + (nets.get("Payload (VMs)", {}).get("vlan") or "-") + ".")
         _set(ws, sens, 2, text)
 
     # Settings
@@ -181,9 +183,9 @@ def fill(plan, template_path: str, out_path: str) -> str:
             _set(ws, _find_row(ws, label), 3, f"{w['modelo']} ({w['suministra']})")
     if plan.storage_type in ("san", "nfs"):
         ext = sc["hardware"]["almacenamiento_externo"].get("modelo") if sc["modo"] == "hardware" else ""
-        _set(ws, _find_row(ws, "storage system"), 3, ext or ("Cabina SAN " + net.proto if plan.storage_type == "san" else "NAS NFS"))
+        _set(ws, _find_row(ws, "storage system"), 3, ext or (_("Cabina SAN ") + net.proto if plan.storage_type == "san" else _("NAS NFS")))
     elif plan.storage_type == "ceph":
-        _set(ws, _find_row(ws, "storage system"), 3, "n/a (Ceph hiperconvergente)")
+        _set(ws, _find_row(ws, "storage system"), 3, _("n/a (Ceph hiperconvergente)"))
     if plan.pbs:
         r = _find_row(ws, "backup server (pbs)")
         if r:

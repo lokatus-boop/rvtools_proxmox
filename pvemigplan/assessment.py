@@ -9,6 +9,8 @@ import datetime as dt
 import re
 from collections import Counter, defaultdict
 
+from pvetools.i18n import N_, _, data_out
+
 from .analysis import LEGACY_OS, Analysis
 from .loader import num, yes
 
@@ -16,67 +18,67 @@ CRIT, WARN, INFO = "CRÍTICO", "AVISO", "INFO"
 SEV_ORDER = {CRIT: 0, WARN: 1, INFO: 2}
 
 # Ciclo de vida de Proxmox VE (fin de soporte publicado por Proxmox)
-PVE_EOL = {5: "julio de 2020", 6: "julio de 2022", 7: "julio de 2024", 8: "agosto de 2026"}
+PVE_EOL = {5: N_("julio de 2020"), 6: N_("julio de 2022"), 7: N_("julio de 2024"), 8: N_("agosto de 2026")}
 PVE_EOL_DATE = {5: dt.date(2020, 7, 31), 6: dt.date(2022, 7, 31), 7: dt.date(2024, 7, 31), 8: dt.date(2026, 8, 31)}
 
 # Avisos de la hoja vHealth (PVE Inventory) agrupados en hallazgos: (patrón, categoría, título, recomendación)
 HEALTH_RULES = [
-    (r"no tiene quórum", "Clúster", "Clúster sin quórum",
-     "Recuperar el quórum (nodos caídos, red de corosync) antes de cualquier cambio."),
-    (r"^Nodo en estado", "Nodos", "Nodos fuera de línea", "Revisar el nodo y su conectividad con el clúster."),
-    (r"Uso de RAM al", "Capacidad", "Nodos con uso de memoria muy alto (≥ 90 %)",
-     "Repartir carga entre nodos, reducir memoria asignada o ampliar RAM."),
-    (r"Disco raíz al", "Nodos", "Disco del sistema de los nodos casi lleno",
-     "Liberar espacio (logs, kernels antiguos, ISOs/backups locales) en el disco del sistema."),
-    (r"Sobreasignación de CPU", "Capacidad", "Sobreasignación de CPU superior a 4:1",
-     "Revisar el rendimiento (CPU ready / steal) y equilibrar las vCPU entre nodos."),
-    (r"^Suscripción", "Soporte", "Nodos sin suscripción activa",
-     "Activar la suscripción para tener repositorio enterprise y soporte del fabricante."),
-    (r"Versiones de PVE mezcladas", "Versiones", "Versiones de Proxmox VE mezcladas en un clúster",
-     "Igualar la versión de todos los nodos del clúster."),
-    (r"^Ocupado al", "Almacenamiento", "Almacenamientos con ocupación alta",
-     "Liberar espacio o ampliar el almacenamiento; no superar el 80 % de ocupación."),
-    (r"^Estado '", "Almacenamiento", "Almacenamientos no disponibles", "Revisar la conexión o configuración del almacenamiento."),
-    (r"^Snapshot '", "Snapshots", "Snapshots antiguas", "Consolidar o eliminar las snapshots que ya no se necesiten."),
-    (r"Guest agent no habilitado", "VMs", "VMs encendidas sin agente QEMU",
-     "Instalar y habilitar qemu-guest-agent (apagados limpios, IPs, consistencia de backups)."),
-    (r"Guest agent habilitado pero no responde", "VMs", "Agente QEMU habilitado pero sin respuesta",
-     "Instalar o arrancar el servicio qemu-guest-agent dentro de la VM."),
-    (r"^Bloqueada", "VMs", "VMs/CTs bloqueadas", "Revisar la tarea que dejó el bloqueo y liberarlo (qm unlock / pct unlock)."),
-    (r"^Disco sin usar", "Almacenamiento", "Discos sin usar asociados a VMs", "Eliminar los discos huérfanos para recuperar espacio."),
-    (r"^ISO montada", "VMs", "ISOs montadas en las VMs", "Desmontar las ISOs que no se usen (impiden migraciones en vivo)."),
-    (r"ningún job de backup", "Backup", "VMs/CTs fuera de cualquier trabajo de backup", "Incluirlas en un trabajo de backup."),
-    (r"Sin ninguna copia de backup", "Backup", "VMs/CTs sin ninguna copia de backup", "Revisar los trabajos de backup y su resultado."),
-    (r"Último backup hace", "Backup", "Copias de backup antiguas", "Revisar por qué fallan o no se ejecutan los trabajos de backup."),
-    (r"verificación del último backup", "Backup", "Verificación de backup fallida", "Revisar el datastore del PBS y repetir la copia."),
-    (r"^HEALTH_", "Ceph", "Ceph no está en estado HEALTH_OK", "Revisar «ceph -s» y resolver los avisos."),
-    (r"^OSD .*in=", "Ceph", "OSDs de Ceph caídos o fuera", "Revisar el disco y el servicio del OSD."),
-    (r"^OSD al", "Ceph", "OSDs de Ceph con ocupación alta", "Ampliar capacidad o rebalancear (Ceph se bloquea al 95 %)."),
-    (r"^SMART", "Discos físicos", "Discos con SMART en error", "Sustituir el disco cuanto antes."),
-    (r"Desgaste del SSD", "Discos físicos", "SSD con desgaste alto (≥ 80 %)", "Planificar la sustitución de los SSD."),
-    (r"Pool en estado", "ZFS", "Pools ZFS degradados", "Sustituir el disco afectado y revisar «zpool status»."),
-    (r"Pool ocupado", "ZFS", "Pools ZFS por encima del 80 %", "Liberar espacio o ampliar el pool."),
-    (r"Cambios de SDN pendientes", "Red", "Cambios de SDN pendientes de aplicar",
-     "Revisar los cambios y aplicarlos (Datacenter → SDN → Aplicar) o descartarlos: la red activa no es la configurada."),
-    (r"no aparecen como bridge ni como VNet", "Red", "VMs en redes que el inventario no puede ver (¿SDN sin permiso?)",
-     "Dar el permiso SDN.Audit al usuario o token del inventario y repetir la recogida."),
-    (r"Bond con una sola", "Red", "Bonds sin redundancia", "Añadir una segunda interfaz al bond."),
-    (r"corosync", "Clúster", "Corosync con un solo enlace", "Configurar un segundo enlace de corosync en una red independiente."),
-    (r"Firewall de datacenter", "Seguridad", "Firewall de datacenter deshabilitado",
-     "Valorar activar el firewall de Proxmox VE con reglas explícitas."),
-    (r"Token sin privilegios", "Seguridad", "Tokens de API con todos los permisos del usuario",
-     "Usar tokens con privilegios separados y solo los permisos necesarios."),
-    (r"tareas con error", "Operación", "Tareas con error o avisos en los últimos 7 días",
-     "Revisar el registro de tareas (hoja vTasks del inventario)."),
-    (r"passthrough sin mapping", "VMs", "Passthrough PCI sin mapeo de recursos",
-     "Crear un mapeo de recursos (Datacenter → Resource Mappings) para el dispositivo."),
-    (r"Repositorio .* sin suscripción", "Actualizaciones", "Repositorio enterprise sin suscripción",
-     "Activar la suscripción o configurar el repositorio no-subscription."),
-    (r"Repositorio de pruebas", "Actualizaciones", "Repositorio de pruebas habilitado", "Deshabilitar el repositorio de pruebas en producción."),
-    (r"actualizaciones pendientes", "Actualizaciones", "Nodos con actualizaciones pendientes",
-     "Aplicar las actualizaciones nodo a nodo en una ventana de mantenimiento."),
-    (r"^Caducado", "Certificados", "Certificados caducados", "Renovar los certificados."),
-    (r"^Caduca en", "Certificados", "Certificados próximos a caducar", "Renovar los certificados antes de su caducidad."),
+    (r"no tiene quórum", N_("Clúster"), N_("Clúster sin quórum"),
+     N_("Recuperar el quórum (nodos caídos, red de corosync) antes de cualquier cambio.")),
+    (r"^Nodo en estado", N_("Nodos"), N_("Nodos fuera de línea"), N_("Revisar el nodo y su conectividad con el clúster.")),
+    (r"Uso de RAM al", N_("Capacidad"), N_("Nodos con uso de memoria muy alto (≥ 90 %)"),
+     N_("Repartir carga entre nodos, reducir memoria asignada o ampliar RAM.")),
+    (r"Disco raíz al", N_("Nodos"), N_("Disco del sistema de los nodos casi lleno"),
+     N_("Liberar espacio (logs, kernels antiguos, ISOs/backups locales) en el disco del sistema.")),
+    (r"Sobreasignación de CPU", N_("Capacidad"), N_("Sobreasignación de CPU superior a 4:1"),
+     N_("Revisar el rendimiento (CPU ready / steal) y equilibrar las vCPU entre nodos.")),
+    (r"^Suscripción", N_("Soporte"), N_("Nodos sin suscripción activa"),
+     N_("Activar la suscripción para tener repositorio enterprise y soporte del fabricante.")),
+    (r"Versiones de PVE mezcladas", N_("Versiones"), N_("Versiones de Proxmox VE mezcladas en un clúster"),
+     N_("Igualar la versión de todos los nodos del clúster.")),
+    (r"^Ocupado al", N_("Almacenamiento"), N_("Almacenamientos con ocupación alta"),
+     N_("Liberar espacio o ampliar el almacenamiento; no superar el 80 % de ocupación.")),
+    (r"^Estado '", N_("Almacenamiento"), N_("Almacenamientos no disponibles"), N_("Revisar la conexión o configuración del almacenamiento.")),
+    (r"^Snapshot '", N_("Snapshots"), N_("Snapshots antiguas"), N_("Consolidar o eliminar las snapshots que ya no se necesiten.")),
+    (r"Guest agent no habilitado", N_("VMs"), N_("VMs encendidas sin agente QEMU"),
+     N_("Instalar y habilitar qemu-guest-agent (apagados limpios, IPs, consistencia de backups).")),
+    (r"Guest agent habilitado pero no responde", N_("VMs"), N_("Agente QEMU habilitado pero sin respuesta"),
+     N_("Instalar o arrancar el servicio qemu-guest-agent dentro de la VM.")),
+    (r"^Bloqueada", N_("VMs"), N_("VMs/CTs bloqueadas"), N_("Revisar la tarea que dejó el bloqueo y liberarlo (qm unlock / pct unlock).")),
+    (r"^Disco sin usar", N_("Almacenamiento"), N_("Discos sin usar asociados a VMs"), N_("Eliminar los discos huérfanos para recuperar espacio.")),
+    (r"^ISO montada", N_("VMs"), N_("ISOs montadas en las VMs"), N_("Desmontar las ISOs que no se usen (impiden migraciones en vivo).")),
+    (r"ningún job de backup", N_("Backup"), N_("VMs/CTs fuera de cualquier trabajo de backup"), N_("Incluirlas en un trabajo de backup.")),
+    (r"Sin ninguna copia de backup", N_("Backup"), N_("VMs/CTs sin ninguna copia de backup"), N_("Revisar los trabajos de backup y su resultado.")),
+    (r"Último backup hace", N_("Backup"), N_("Copias de backup antiguas"), N_("Revisar por qué fallan o no se ejecutan los trabajos de backup.")),
+    (r"verificación del último backup", N_("Backup"), N_("Verificación de backup fallida"), N_("Revisar el datastore del PBS y repetir la copia.")),
+    (r"^HEALTH_", N_("Ceph"), N_("Ceph no está en estado HEALTH_OK"), N_("Revisar «ceph -s» y resolver los avisos.")),
+    (r"^OSD .*in=", N_("Ceph"), N_("OSDs de Ceph caídos o fuera"), N_("Revisar el disco y el servicio del OSD.")),
+    (r"^OSD al", N_("Ceph"), N_("OSDs de Ceph con ocupación alta"), N_("Ampliar capacidad o rebalancear (Ceph se bloquea al 95 %).")),
+    (r"^SMART", N_("Discos físicos"), N_("Discos con SMART en error"), N_("Sustituir el disco cuanto antes.")),
+    (r"Desgaste del SSD", N_("Discos físicos"), N_("SSD con desgaste alto (≥ 80 %)"), N_("Planificar la sustitución de los SSD.")),
+    (r"Pool en estado", N_("ZFS"), N_("Pools ZFS degradados"), N_("Sustituir el disco afectado y revisar «zpool status».")),
+    (r"Pool ocupado", N_("ZFS"), N_("Pools ZFS por encima del 80 %"), N_("Liberar espacio o ampliar el pool.")),
+    (r"Cambios de SDN pendientes", N_("Red"), N_("Cambios de SDN pendientes de aplicar"),
+     N_("Revisar los cambios y aplicarlos (Datacenter → SDN → Aplicar) o descartarlos: la red activa no es la configurada.")),
+    (r"no aparecen como bridge ni como VNet", N_("Red"), N_("VMs en redes que el inventario no puede ver (¿SDN sin permiso?)"),
+     N_("Dar el permiso SDN.Audit al usuario o token del inventario y repetir la recogida.")),
+    (r"Bond con una sola", N_("Red"), N_("Bonds sin redundancia"), N_("Añadir una segunda interfaz al bond.")),
+    (r"corosync", N_("Clúster"), N_("Corosync con un solo enlace"), N_("Configurar un segundo enlace de corosync en una red independiente.")),
+    (r"Firewall de datacenter", N_("Seguridad"), N_("Firewall de datacenter deshabilitado"),
+     N_("Valorar activar el firewall de Proxmox VE con reglas explícitas.")),
+    (r"Token sin privilegios", N_("Seguridad"), N_("Tokens de API con todos los permisos del usuario"),
+     N_("Usar tokens con privilegios separados y solo los permisos necesarios.")),
+    (r"tareas con error", N_("Operación"), N_("Tareas con error o avisos en los últimos 7 días"),
+     N_("Revisar el registro de tareas (hoja vTasks del inventario).")),
+    (r"passthrough sin mapping", N_("VMs"), N_("Passthrough PCI sin mapeo de recursos"),
+     N_("Crear un mapeo de recursos (Datacenter → Resource Mappings) para el dispositivo.")),
+    (r"Repositorio .* sin suscripción", N_("Actualizaciones"), N_("Repositorio enterprise sin suscripción"),
+     N_("Activar la suscripción o configurar el repositorio no-subscription.")),
+    (r"Repositorio de pruebas", N_("Actualizaciones"), N_("Repositorio de pruebas habilitado"), N_("Deshabilitar el repositorio de pruebas en producción.")),
+    (r"actualizaciones pendientes", N_("Actualizaciones"), N_("Nodos con actualizaciones pendientes"),
+     N_("Aplicar las actualizaciones nodo a nodo en una ventana de mantenimiento.")),
+    (r"^Caducado", N_("Certificados"), N_("Certificados caducados"), N_("Renovar los certificados.")),
+    (r"^Caduca en", N_("Certificados"), N_("Certificados próximos a caducar"), N_("Renovar los certificados antes de su caducidad.")),
 ]
 
 
@@ -185,15 +187,16 @@ class Assessment:
         return b
 
     def snapshot_age(self) -> dict:
-        b = {"≤ 7 días": 0, "8-30 días": 0, "31-90 días": 0, "> 90 días": 0, "Sin fecha": 0}
+        lbl = {k: _(k) for k in ("≤ 7 días", "8-30 días", "31-90 días", "> 90 días", "Sin fecha")}
+        b = {v: 0 for v in lbl.values()}
         for r in self.sheets.get("vSnapshot", []):
             if str(r.get("Snapshot")) == "current":
                 continue
             a = num(r.get("Antigüedad (días)"))
             k = "Sin fecha" if a is None else "≤ 7 días" if a <= 7 else "8-30 días" if a <= 30 else "31-90 días" if a <= 90 else "> 90 días"
-            b[k] += 1
+            b[lbl[k]] += 1
         if not sum(b.values()):
-            b["Sin fecha"] = sum(g.snapshots for g in self.an.guests)
+            b[lbl["Sin fecha"]] = sum(g.snapshots for g in self.an.guests)
         return b
 
     def ram_buckets(self) -> dict:
@@ -229,8 +232,8 @@ class Assessment:
 
         def add(sev, cat, title, objs, rec):
             objs = [o for o in objs if o]
-            out.append({"Severidad": sev, "Categoría": cat, "Hallazgo": title, "Afectados": len(objs) or "",
-                        "Objetos": objs, "Recomendación": rec})
+            out.append({"Severidad": sev, "Categoría": _(cat), "Hallazgo": _(title), "Afectados": len(objs) or "",
+                        "Objetos": objs, "Recomendación": _(rec)})
 
         # 1) Avisos de PVE Inventory (hoja vHealth), agrupados
         groups = defaultdict(list)
@@ -247,7 +250,7 @@ class Assessment:
             _p, cat, title, rec = HEALTH_RULES[i]
             add(sev, cat, title, [self._obj(r) for r in rows], rec)
         for r in other:
-            add(str(r.get("Severidad") or INFO), "Otros", str(r.get("Mensaje") or ""), [self._obj(r, False)], "Revisar.")
+            add(str(r.get("Severidad") or INFO), N_("Otros"), data_out(str(r.get("Mensaje") or "")), [self._obj(r, False)], _("Revisar."))
 
         # 2) Comprobaciones propias del análisis (no incluidas en vHealth)
         an = self.an
@@ -259,90 +262,91 @@ class Assessment:
         for m, nodes in sorted(majors.items()):
             if m in PVE_EOL:
                 expired = self.ref_date > PVE_EOL_DATE[m]
-                add(CRIT if expired else WARN, "Versiones",
-                    f"Proxmox VE {m} " + (f"sin soporte desde {PVE_EOL[m]}" if expired else f"llega a fin de soporte en {PVE_EOL[m]}"),
-                    nodes, "Actualizar a una versión de Proxmox VE con soporte (sin actualizaciones de seguridad desde el fin de soporte).")
+                add(CRIT if expired else WARN, _("Versiones"),
+                    (_("Proxmox VE {m} sin soporte desde {date}", m=m, date=_(PVE_EOL[m])) if expired
+                     else _("Proxmox VE {m} llega a fin de soporte en {date}", m=m, date=_(PVE_EOL[m]))),
+                    nodes, _("Actualizar a una versión de Proxmox VE con soporte (sin actualizaciones de seguridad desde el fin de soporte)."))
         hot_cpu = [f"{h.node} ({h.cpu_use_pct:.0f} %)" for h in an.hosts if h.cpu_use_pct >= 80]
         if hot_cpu:
-            add(WARN, "Capacidad", "Nodos con uso de CPU alto (≥ 80 %)", hot_cpu, "Repartir la carga entre nodos o ampliar CPU.")
-        over_ram = [f"{r['Nodo']} ({r['RAM asignada encendidas (GiB)']:.0f} de {r['RAM física (GiB)']:.0f} GiB)"
+            add(WARN, _("Capacidad"), _("Nodos con uso de CPU alto (≥ 80 %)"), hot_cpu, _("Repartir la carga entre nodos o ampliar CPU."))
+        over_ram = [_("{nodo} ({ram_asignada_encendidas_:.0f} de {ram_fisica_gib:.0f} GiB)", nodo=r['Nodo'], ram_asignada_encendidas_=r['RAM asignada encendidas (GiB)'], ram_fisica_gib=r['RAM física (GiB)'])
                     for r in self.node_rows() if r["RAM física (GiB)"] and r["RAM asignada encendidas (GiB)"] > r["RAM física (GiB)"]]
         if over_ram:
-            add(WARN, "Capacidad", "Memoria asignada a VMs encendidas superior a la RAM física del nodo", over_ram,
-                "Depende de ballooning/KSM: vigilar el uso real y evitar swap en el host.")
+            add(WARN, _("Capacidad"), _("Memoria asignada a VMs encendidas superior a la RAM física del nodo"), over_ram,
+                _("Depende de ballooning/KSM: vigilar el uso real y evitar swap en el host."))
         for r in self.cluster_resilience():
             if r["Resiste la caída de un nodo"] == "No":
-                add(WARN, "Capacidad", "El clúster no resiste la caída de un nodo (memoria)",
-                    [f"{r['Clúster']}: {r['Ocupación con un nodo caído (%)']:.0f} % de la RAM restante"],
-                    "Mantener reserva de memoria para reiniciar en otros nodos las VMs de un nodo caído (N+1).")
+                add(WARN, _("Capacidad"), _("El clúster no resiste la caída de un nodo (memoria)"),
+                    [_("{cluster}: {ocupacion_con_un_nodo_ca:.0f} % de la RAM restante", cluster=r['Clúster'], ocupacion_con_un_nodo_ca=r['Ocupación con un nodo caído (%)'])],
+                    _("Mantener reserva de memoria para reiniciar en otros nodos las VMs de un nodo caído (N+1)."))
         for c in an.clusters:
             hs = [h for h in an.hosts if h.cluster == c and h.ram_gib]
             if len(hs) >= 2:
                 pcts = [h.ram_used_gib / h.ram_gib * 100 for h in hs]
                 if max(pcts) - min(pcts) >= 30:
-                    add(INFO, "Capacidad", "Carga de memoria desequilibrada entre nodos",
-                        [f"{c}: entre {min(pcts):.0f} % y {max(pcts):.0f} %"], "Redistribuir VMs entre los nodos del clúster.")
+                    add(INFO, _("Capacidad"), _("Carga de memoria desequilibrada entre nodos"),
+                        [_("{c}: entre {pcts:.0f} % y {pcts2:.0f} %", c=c, pcts=min(pcts), pcts2=max(pcts))], _("Redistribuir VMs entre los nodos del clúster."))
         two = [r.get("Clúster / nodo") for r in self.sheets.get("vCluster", [])
                if str(r.get("Tipo") or "").lower().startswith("cl") and int(num(r.get("Nodos"), 0) or 0) == 2]
         if two:
-            add(WARN, "Clúster", "Clústeres de 2 nodos", two,
-                "Añadir un QDevice (voto externo) o un tercer nodo para no perder el quórum si cae un nodo.")
+            add(WARN, "Clúster", _("Clústeres de 2 nodos"), two,
+                _("Añadir un QDevice (voto externo) o un tercer nodo para no perder el quórum si cae un nodo."))
         alone = sorted({h.cluster for h in an.hosts if sum(1 for x in an.hosts if x.cluster == h.cluster) == 1})
         if alone:
-            add(INFO, "Clúster", "Nodos independientes (sin clúster)", alone, "Sin alta disponibilidad ni migración en vivo entre nodos.")
+            add(INFO, "Clúster", _("Nodos independientes (sin clúster)"), alone, _("Sin alta disponibilidad ni migración en vivo entre nodos."))
         legacy = [f"{g.name} ({g.os_label})" for g in an.guests if g.kind == "VM" and g.ostype in LEGACY_OS]
         if legacy:
-            add(WARN, "Sistemas operativos", "VMs con sistemas operativos antiguos o fuera de soporte", legacy,
-                "Planificar la actualización del sistema operativo invitado.")
+            add(WARN, _("Sistemas operativos"), _("VMs con sistemas operativos antiguos o fuera de soporte"), legacy,
+                _("Planificar la actualización del sistema operativo invitado."))
         pt = [f"{g.name} ({g.passthrough})" for g in an.guests if g.passthrough]
         if pt and not any("passthrough" in str(r.get("Mensaje") or "").lower() for r in self.sheets.get("vHealth", [])):
-            add(INFO, "VMs", "VMs con dispositivos en passthrough", pt, "No admiten migración en vivo ni HA entre nodos sin hardware equivalente.")
+            add(INFO, "VMs", _("VMs con dispositivos en passthrough"), pt, _("No admiten migración en vivo ni HA entre nodos sin hardware equivalente."))
         vend = defaultdict(set)
         for h in an.hosts:
             if h.vendor:
                 vend[h.cluster].add(h.vendor)
         host_cpu = [g.name for g in an.guests if g.cpu_type == "host" and len(vend.get(g.cluster, ())) > 1]
         if host_cpu:
-            add(WARN, "VMs", "VMs con CPU «host» en un entorno con distintos fabricantes de CPU", host_cpu,
-                "Usar un modelo de CPU genérico (x86-64-v2-AES / v3) para poder moverlas entre nodos.")
+            add(WARN, "VMs", _("VMs con CPU «host» en un entorno con distintos fabricantes de CPU"), host_cpu,
+                _("Usar un modelo de CPU genérico (x86-64-v2-AES / v3) para poder moverlas entre nodos."))
         if not self.sheets.get("vBackup"):
-            add(CRIT, "Backup", "No hay trabajos de backup programados", ["(general)"], "Definir trabajos de backup para todas las VMs/CTs.")
+            add(CRIT, "Backup", _("No hay trabajos de backup programados"), [_("(general)")], _("Definir trabajos de backup para todas las VMs/CTs."))
         local_bk = [str(r.get("Job")) for r in self.sheets.get("vBackup", [])
                     if str(self._storage_type(r.get("Almacenamiento"))) in ("dir", "lvm", "lvmthin", "zfspool") and yes(r.get("Habilitado") or "Sí")]
         if local_bk:
-            add(WARN, "Backup", "Trabajos de backup a almacenamiento local de los nodos", local_bk,
-                "Guardar las copias fuera de los nodos (Proxmox Backup Server o almacenamiento externo).")
+            add(WARN, "Backup", _("Trabajos de backup a almacenamiento local de los nodos"), local_bk,
+                _("Guardar las copias fuera de los nodos (Proxmox Backup Server o almacenamiento externo)."))
         sdn = an.sdn()
         unused = [f"{v['vnet']} ({v['zone']})" for v in sdn["vnets"] if not v["nics"]]
         if unused:
-            add(INFO, "Red", "VNets de SDN sin ninguna VM/CT conectada", unused,
-                "Eliminar las VNets que ya no se usen o documentar para qué están reservadas.")
+            add(INFO, "Red", _("VNets de SDN sin ninguna VM/CT conectada"), unused,
+                _("Eliminar las VNets que ya no se usen o documentar para qué están reservadas."))
         evpn = [f"{z['zone']} ({z['exitnodes'] or 'ninguno'})" for z in sdn["zones"]
                 if z["type"] == "evpn" and len([x for x in z["exitnodes"].replace(";", ",").split(",") if x.strip()]) < 2]
         if evpn:
-            add(WARN, "Red", "Zonas SDN EVPN con menos de dos exit nodes", evpn,
-                "Configurar al menos dos exit nodes para que la salida de las VNets EVPN no dependa de un único nodo.")
+            add(WARN, "Red", _("Zonas SDN EVPN con menos de dos exit nodes"), evpn,
+                _("Configurar al menos dos exit nodes para que la salida de las VNets EVPN no dependa de un único nodo."))
         snat = [f"{v['vnet']} ({x['cidr']})" for v in sdn["vnets"] if v["zone_type"] == "simple" for x in v["subnets"] if x["snat"]]
         if snat:
-            add(INFO, "Red", "Subredes SDN con SNAT en zonas simples", snat,
-                "La VM sale a la red con la IP del nodo donde se ejecuta: cambia al migrarla de nodo. Tenerlo en cuenta en firewalls.")
+            add(INFO, "Red", _("Subredes SDN con SNAT en zonas simples"), snat,
+                _("La VM sale a la red con la IP del nodo donde se ejecuta: cambia al migrarla de nodo. Tenerlo en cuenta en firewalls."))
         for c in an.clusters:
             nodes = sum(1 for h in an.hosts if h.cluster == c)
             vlans = {vl for g in an.guests if g.cluster == c for _b, vl in g.nics if vl}
             if nodes >= 3 and len(vlans) >= 3 and not any(z["cluster"] == c for z in sdn["zones"]):
-                add(INFO, "Red", "Redes de VMs definidas nodo a nodo (sin SDN)", [f"{c}: {len(vlans)} VLANs"],
-                    "Valorar SDN (zona VLAN, una VNet por VLAN) para definir y controlar las redes una sola vez para todo el clúster.")
+                add(INFO, "Red", _("Redes de VMs definidas nodo a nodo (sin SDN)"), [_("{c}: {n_vlans} VLANs", c=c, n_vlans=len(vlans))],
+                    _("Valorar SDN (zona VLAN, una VNet por VLAN) para definir y controlar las redes una sola vez para todo el clúster."))
         ha_c = {g.cluster for g in an.guests if g.ha}
         no_ha = [c for c in an.clusters if c not in ha_c and sum(1 for h in an.hosts if h.cluster == c) >= 3]
         if no_ha:
-            add(INFO, "Alta disponibilidad", "Clústeres sin ningún recurso en alta disponibilidad", no_ha,
-                "Valorar HA para los servicios críticos.")
-        big = [f"{g.name} ({g.ram_gib:.0f} GiB)" for g in an.guests
+            add(INFO, _("Alta disponibilidad"), _("Clústeres sin ningún recurso en alta disponibilidad"), no_ha,
+                _("Valorar HA para los servicios críticos."))
+        big = [_("{name} ({ram_gib:.0f} GiB)", name=g.name, ram_gib=g.ram_gib) for g in an.guests
                for h in [min((x for x in an.hosts if x.cluster == g.cluster and x.ram_gib), key=lambda x: x.ram_gib, default=None)]
                if h and g.ram_gib > h.ram_gib * 0.5]
         if big:
-            add(INFO, "Capacidad", "VMs con más de la mitad de la RAM del nodo más pequeño", big,
-                "Limitan dónde se pueden reiniciar o mover; tenerlo en cuenta en mantenimientos.")
+            add(INFO, _("Capacidad"), _("VMs con más de la mitad de la RAM del nodo más pequeño"), big,
+                _("Limitan dónde se pueden reiniciar o mover; tenerlo en cuenta en mantenimientos."))
         out.sort(key=lambda r: (SEV_ORDER.get(r["Severidad"], 9), r["Categoría"], -(r["Afectados"] or 0)))
         return out
 
@@ -360,8 +364,8 @@ class Assessment:
         detail = re.findall(r"\d+(?:[.,]\d+)?\s*(?:%|días)", msg)
         s = o if o and o not in ("Clúster", "Ceph", "Corosync", "Firewall") else c
         if with_msg and detail:
-            s += f" ({detail[0]})"
-        return s
+            s += f" ({detail[0].replace('días', _('días'))})"
+        return data_out(s)
 
     def severity_counts(self) -> Counter:
         return Counter(f["Severidad"] for f in self.findings)
@@ -369,10 +373,10 @@ class Assessment:
     def score(self) -> str:
         c = self.severity_counts()
         if c.get(CRIT):
-            return "Requiere atención"
+            return _("Requiere atención")
         if c.get(WARN, 0) > 5:
-            return "Mejorable"
-        return "Correcto"
+            return _("Mejorable")
+        return _("Correcto")
 
     # ------------------------------------------------------------------ resumen
     def text_summary(self) -> str:
@@ -380,21 +384,19 @@ class Assessment:
         t = an.totals()
         c = self.severity_counts()
         lines = [
-            "INFORME DE LA INFRAESTRUCTURA ACTUAL (solo análisis)",
-            f"Clústeres / nodos independientes: {t['clusters']} · Nodos: {t['hosts']} · Proxmox VE {', '.join(an.pve_versions()) or '?'}",
-            f"Capacidad física: {t['host_cores']} cores / {t['host_threads']} hilos · {t['host_ram_gib']:.0f} GiB RAM "
-            f"({t['host_ram_used_gib']:.0f} GiB en uso)",
-            f"VMs: {t['vms']} · CTs: {t['cts']} · encendidas: {t['running']} · plantillas: {self.templates}",
-            f"Asignado: {t['vcpu']:.0f} vCPU · {t['ram_gib']:.0f} GiB RAM · {t['disk_prov_gib'] / 1024:.1f} TiB de disco aprovisionado",
-            f"Almacenamiento: {sum(r['Total (GiB)'] for r in an.storage_usage()) / 1024:.1f} TiB en total, "
-            f"{sum(r['Usado (GiB)'] for r in an.storage_usage()) / 1024:.1f} TiB usados",
-            f"Hallazgos: {c.get(CRIT, 0)} críticos · {c.get(WARN, 0)} avisos · {c.get(INFO, 0)} informativos → {self.score()}",
+            _("INFORME DE LA INFRAESTRUCTURA ACTUAL (solo análisis)"),
+            _("Clústeres / nodos independientes: {clusters} · Nodos: {hosts} · Proxmox VE {v}", clusters=t['clusters'], hosts=t['hosts'], v=', '.join(an.pve_versions()) or '?'),
+            _("Capacidad física: {host_cores} cores / {host_threads} hilos · {host_ram_gib:.0f} GiB RAM ({host_ram_used_gib:.0f} GiB en uso)", host_cores=t['host_cores'], host_threads=t['host_threads'], host_ram_gib=t['host_ram_gib'], host_ram_used_gib=t['host_ram_used_gib']),
+            _("VMs: {vms} · CTs: {cts} · encendidas: {running} · plantillas: {templates}", vms=t['vms'], cts=t['cts'], running=t['running'], templates=self.templates),
+            _("Asignado: {vcpu:.0f} vCPU · {ram_gib:.0f} GiB RAM · {disk_prov_gib:.1f} TiB de disco aprovisionado", vcpu=t['vcpu'], ram_gib=t['ram_gib'], disk_prov_gib=t['disk_prov_gib'] / 1024),
+            _("Almacenamiento: {total:.1f} TiB en total, {used:.1f} TiB usados", total=sum(r['Total (GiB)'] for r in an.storage_usage()) / 1024, used=sum(r['Usado (GiB)'] for r in an.storage_usage()) / 1024),
+            _("Hallazgos: {crit} críticos · {warn} avisos · {info} informativos → {score}", crit=c.get(CRIT, 0), warn=c.get(WARN, 0), info=c.get(INFO, 0), score=self.score()),
         ]
         if self.anonymized:
-            lines.append("Inventario anonimizado: los nombres e IPs son seudónimos.")
+            lines.append(_("Inventario anonimizado: los nombres e IPs son seudónimos."))
         lines.append("")
         for f in self.findings[:15]:
             lines.append(f"[{f['Severidad']}] {f['Categoría']}: {f['Hallazgo']}" + (f" ({f['Afectados']})" if f["Afectados"] else ""))
         if len(self.findings) > 15:
-            lines.append(f"… y {len(self.findings) - 15} hallazgos más en el informe.")
+            lines.append(_("… y {n_findings} hallazgos más en el informe.", n_findings=len(self.findings) - 15))
         return "\n".join(lines)

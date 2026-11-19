@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 
 from . import APP_NAME, __version__
 from .branding import COMPANY, DISCLAIMER, asset_path
+from .i18n import N_, _, cell_out, get_lang
 from .schema import FORMAT_VERSION, SCHEMA
 from .safefile import atomic_save, atomic_text
 
@@ -30,6 +31,13 @@ def columns(rows: list[dict], sheet: str | None = None) -> list[str]:
     return cols
 
 
+def _cell(sheet, col, row):
+    """Valor de una celda en el idioma de exportación (vSource «Idioma» = idioma del fichero)."""
+    if sheet == "vSource" and col == "Idioma":
+        return get_lang()
+    return cell_out(sheet, col, row.get(col))
+
+
 def to_xlsx(sheets: dict, path: str):
     wb = Workbook()
     _notice_sheet(wb.active, is_anonymized(sheets))
@@ -37,32 +45,43 @@ def to_xlsx(sheets: dict, path: str):
         ws = wb.create_sheet(name[:31])
         cols = columns(rows, name)
         if not cols:
-            ws.append(["(sin datos)"])
+            ws.append([_("(sin datos)")])
             continue
-        ws.append(cols)
+        ws.append(headers(cols))
         for r in rows:
-            ws.append([r.get(c) for c in cols])
+            ws.append([_cell(name, c, r) for c in cols])
         for cell in ws[1]:
             cell.fill, cell.font = HEADER_FILL, HEADER_FONT
             cell.alignment = Alignment(vertical="center")
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
         for i, c in enumerate(cols, 1):
-            width = max([len(str(c))] + [len(str(r.get(c) or "")) for r in rows[:500]])
+            width = max([len(_(c))] + [len(str(r.get(c) or "")) for r in rows[:500]])
             ws.column_dimensions[get_column_letter(i)].width = min(max(width + 2, 8), 60)
         if name == "vHealth" and "Severidad" in cols:
-            sev_col = cols.index("Severidad") + 1
-            for row in ws.iter_rows(min_row=2):
-                fill = SEV_FILL.get(row[sev_col - 1].value)
+            for row, r in zip(ws.iter_rows(min_row=2), rows):
+                fill = SEV_FILL.get(r.get("Severidad"))
                 if fill:
                     for cell in row:
                         cell.fill = fill
     return atomic_save(path, wb.save)
 
 
-ANON_NOTICE = ("INVENTARIO ANONIMIZADO: los nombres de clústeres, nodos, VMs, almacenamientos, usuarios, dominios, etc. "
+ANON_NOTICE = N_("INVENTARIO ANONIMIZADO: los nombres de clústeres, nodos, VMs, almacenamientos, usuarios, dominios, etc. "
                "se han sustituido por seudónimos y las IPs/MACs están transformadas. La correspondencia con los "
                "valores reales solo está en el fichero de correspondencia que conserva el cliente.")
+
+
+def headers(cols: list[str]) -> list[str]:
+    """Cabeceras en el idioma activo (sin repetir: si dos traducciones coinciden, se deja el original)."""
+    out, seen = [], set()
+    for c in cols:
+        h = _(c)
+        if h in seen:
+            h = c
+        seen.add(h)
+        out.append(h)
+    return out
 
 
 def is_anonymized(sheets: dict) -> bool:
@@ -72,7 +91,7 @@ def is_anonymized(sheets: dict) -> bool:
 def _notice_sheet(ws, anon: bool = False):
     """Primera hoja: logo y aviso de uso."""
     import datetime as dt
-    ws.title = "Aviso"
+    ws.title = _("Aviso")[:31]
     ws.sheet_view.showGridLines = False
     ws.column_dimensions["A"].width = 120
     row = 1
@@ -85,16 +104,18 @@ def _notice_sheet(ws, anon: bool = False):
         row = 3
     except Exception:  # noqa: BLE001
         pass
-    ws.cell(row, 1, f"{APP_NAME} {__version__} — Inventario de Proxmox VE · {COMPANY}").font = Font(bold=True, size=14)
-    ws.cell(row + 1, 1, f"Generado: {dt.datetime.now():%Y-%m-%d %H:%M:%S} · Versión de formato: {FORMAT_VERSION}").font = \
+    ws.cell(row, 1, _("{app} {version} — Inventario de Proxmox VE · {company}", app=APP_NAME, version=__version__,
+                      company=COMPANY)).font = Font(bold=True, size=14)
+    ws.cell(row + 1, 1, _("Generado: {date} · Versión de formato: {fmt}", date=f"{dt.datetime.now():%Y-%m-%d %H:%M:%S}",
+                          fmt=FORMAT_VERSION)).font = \
         Font(italic=True, color="666666")
     r = row + 3
     if anon:
-        ws.cell(r, 1, ANON_NOTICE).font = Font(bold=True, color="C00000")
+        ws.cell(r, 1, _(ANON_NOTICE)).font = Font(bold=True, color="C00000")
         ws.cell(r, 1).alignment = Alignment(wrap_text=True, vertical="top")
         ws.row_dimensions[r].height = 45
         r += 2
-    for line in DISCLAIMER.split("\n"):
+    for line in _(DISCLAIMER).split("\n"):
         c = ws.cell(r, 1, line)
         c.alignment = Alignment(wrap_text=True, vertical="top")
         if line.isupper():
@@ -110,15 +131,16 @@ def to_csv(sheets: dict, folder: str, prefix: str = ""):
         cols = columns(rows, name)
         # utf-8-sig + ';' para que Excel en español lo abra directamente
         with atomic_text(p, encoding="utf-8-sig", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=cols or ["(sin datos)"], delimiter=";")
-            w.writeheader()
-            w.writerows(rows)
+            w = csv.writer(f, delimiter=";")
+            w.writerow(headers(cols) if cols else [_("(sin datos)")])
+            for r in rows:
+                w.writerow([_cell(name, c, r) for c in cols])
         paths.append(p)
-    p = os.path.join(folder, f"{prefix}LEEME_AVISO.txt")
+    p = os.path.join(folder, f"{prefix}{_('LEEME_AVISO')}.txt")
     with atomic_text(p, encoding="utf-8-sig") as f:
         f.write(f"{APP_NAME} {__version__} - {COMPANY}\n\n")
         if is_anonymized(sheets):
-            f.write(ANON_NOTICE + "\n\n")
-        f.write(DISCLAIMER + "\n")
+            f.write(_(ANON_NOTICE) + "\n\n")
+        f.write(_(DISCLAIMER) + "\n")
     paths.append(p)
     return paths

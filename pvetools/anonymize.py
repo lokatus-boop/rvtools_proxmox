@@ -21,12 +21,13 @@ import os
 import re
 import secrets
 
+from .i18n import LANGS, D, N_, _, tr
 from .safefile import atomic_save, atomic_text
 
 MAP_FORMAT = 1
-MAP_SHEET = "Correspondencia"
+MAP_SHEET = N_("Correspondencia")
 KEY_SHEET = "Clave"
-ANON_MARK = "Sí"
+ANON_MARK = D("Sí")
 
 # Prefijo y nº de dígitos del seudónimo por tipo de dato
 KINDS = {
@@ -34,28 +35,28 @@ KINDS = {
     "node": ("Nodo", "NODO-", 2),
     "vm": ("VM/CT", "VM-", 4),
     "storage": ("Almacenamiento", "STORAGE-", 2),
-    "pool": ("Pool de recursos", "POOL-", 2),
-    "tag": ("Etiqueta", "tag-", 2),
-    "zfs": ("Pool ZFS", "zpool-", 2),
-    "cephpool": ("Pool Ceph", "cephpool-", 2),
-    "path": ("Ruta / destino de almacenamiento", "ruta-", 2),
-    "server": ("Servidor externo", "servidor-", 2),
-    "domain": ("Dominio", "dominio", 2),
+    "pool": (N_("Pool de recursos"), "POOL-", 2),
+    "tag": (N_("Etiqueta"), "tag-", 2),
+    "zfs": (N_("Pool ZFS"), "zpool-", 2),
+    "cephpool": (N_("Pool Ceph"), "cephpool-", 2),
+    "path": (N_("Ruta / destino de almacenamiento"), "ruta-", 2),
+    "server": (N_("Servidor externo"), "servidor-", 2),
+    "domain": (N_("Dominio"), "dominio", 2),
     "user": ("Usuario", "usuario", 2),
     "group": ("Grupo", "grupo", 2),
     "realm": ("Realm", "realm", 2),
-    "token": ("API token", "token", 2),
+    "token": (N_("API token"), "token", 2),
     "zone": ("Zona SDN", "zona", 2),
-    "vnet": ("VNet SDN", "vnet-", 2),
-    "sdn": ("Objeto SDN (controlador, IPAM, DNS, fabric)", "sdn-", 2),
-    "fwobj": ("Objeto de firewall", "fwobj-", 2),
-    "hagroup": ("Grupo / regla HA", "ha-", 2),
+    "vnet": (N_("VNet SDN"), "vnet-", 2),
+    "sdn": (N_("Objeto SDN (controlador, IPAM, DNS, fabric)"), "sdn-", 2),
+    "fwobj": (N_("Objeto de firewall"), "fwobj-", 2),
+    "hagroup": (N_("Grupo / regla HA"), "ha-", 2),
     "job": ("Job", "job-", 2),
     "snapshot": ("Snapshot", "snap-", 2),
-    "iso": ("Imagen ISO", "iso-", 3),
-    "serial": ("Nº de serie", "SN-", 4),
-    "mapping": ("Mapping de dispositivo", "map-", 2),
-    "ip": ("Dirección IP", "", 0),
+    "iso": (N_("Imagen ISO"), "iso-", 3),
+    "serial": (N_("Nº de serie"), "SN-", 4),
+    "mapping": (N_("Mapping de dispositivo"), "map-", 2),
+    "ip": (N_("Dirección IP"), "", 0),
     "mac": ("MAC", "", 0),
 }
 
@@ -151,7 +152,7 @@ class Anonymizer:
             return self.alias("storage", value)
         st, rest = str(value).split(":", 1)
         if rest.startswith("iso/") or rest.startswith("vztmpl/"):
-            folder, _, fname = rest.partition("/")
+            folder, _sep, fname = rest.partition("/")
             return f"{self.alias('storage', st)}:{folder}/{self.alias('iso', fname)}"
         return f"{self.alias('storage', st)}:{rest}"
 
@@ -370,7 +371,7 @@ class Anonymizer:
                     elif isinstance(row[col], str):  # red de seguridad: ninguna IP/MAC se escapa
                         row[col] = self.ip_text(row[col])
         for row in out.get("vSource", []):
-            row["Anonimizado"] = ANON_MARK + (" (IPs conservadas)" if self.keep_ips else "")
+            row["Anonimizado"] = D("Sí (IPs conservadas)") if self.keep_ips else ANON_MARK
         return out
 
     def _row(self, sheet: str, row: dict) -> set:
@@ -389,7 +390,7 @@ class Anonymizer:
         for kind, m in self.maps.items():
             for orig, al in m.items():
                 if orig != al:
-                    out.append({"Tipo": KINDS[kind][0], "Clave tipo": kind, "Original": orig, "Seudónimo": al})
+                    out.append({"Tipo": _(KINDS[kind][0]), "Clave tipo": kind, "Original": orig, "Seudónimo": al})
         return out
 
     def save(self, path: str):
@@ -398,13 +399,13 @@ class Anonymizer:
         from openpyxl.styles import Alignment, Font, PatternFill
         wb = Workbook()
         ws = wb.active
-        ws.title = MAP_SHEET
-        ws.append(["CONFIDENCIAL — Correspondencia de la anonimización del inventario. Este fichero se queda en el "
-                   "cliente: NO lo envíes junto al inventario anonimizado."])
+        ws.title = _(MAP_SHEET)[:31]
+        ws.append([_("CONFIDENCIAL — Correspondencia de la anonimización del inventario. Este fichero se queda en el "
+                   "cliente: NO lo envíes junto al inventario anonimizado.")])
         ws["A1"].font = Font(bold=True, color="C00000")
         ws.append([])
         cols = ["Tipo", "Clave tipo", "Original", "Seudónimo"]
-        ws.append(cols)
+        ws.append([_(c) for c in cols])
         for c in ws[3]:
             c.fill, c.font = PatternFill("solid", fgColor="1F4E78"), Font(bold=True, color="FFFFFF")
             c.alignment = Alignment(vertical="center")
@@ -419,8 +420,8 @@ class Anonymizer:
         ks.append(["Clave IP/MAC", self.key])
         ks.append(["IPs conservadas", "Sí" if self.keep_ips else "No"])
         ks.append([])
-        ks.append(["Reutiliza este fichero en la próxima anonimización para que los mismos valores reciban los "
-                   "mismos seudónimos (p. ej. al inventariar otro clúster del mismo cliente)."])
+        ks.append([_("Reutiliza este fichero en la próxima anonimización para que los mismos valores reciban los "
+                   "mismos seudónimos (p. ej. al inventariar otro clúster del mismo cliente).")])
         ks.sheet_state = "hidden"
         atomic_save(path, wb.save)
         return path
@@ -430,12 +431,13 @@ class Anonymizer:
         """Carga un fichero de correspondencia anterior para continuar con los mismos seudónimos."""
         from openpyxl import load_workbook
         wb = load_workbook(path, read_only=True, data_only=True)
-        if MAP_SHEET not in wb.sheetnames or KEY_SHEET not in wb.sheetnames:
-            raise ValueError(f"{os.path.basename(path)} no es un fichero de correspondencia de PVE Inventory")
+        map_sheet = next((n for n in wb.sheetnames if n in {tr(MAP_SHEET, lang=lg)[:31] for lg in LANGS}), None)
+        if not map_sheet or KEY_SHEET not in wb.sheetnames:
+            raise ValueError(_("{basename} no es un fichero de correspondencia de PVE Inventory", basename=os.path.basename(path)))
         meta = {r[0]: r[1] for r in wb[KEY_SHEET].iter_rows(values_only=True) if r and r[0]}
         prev_keep = str(meta.get("IPs conservadas")) == "Sí"
         a = cls(key=str(meta["Clave IP/MAC"]), keep_ips=prev_keep if keep_ips is None else keep_ips)
-        for r in wb[MAP_SHEET].iter_rows(min_row=4, values_only=True):
+        for r in wb[map_sheet].iter_rows(min_row=4, values_only=True):
             if not r or len(r) < 4 or r[1] not in a.maps or r[2] is None:
                 continue
             a.maps[r[1]][str(r[2])] = str(r[3])
@@ -474,7 +476,7 @@ def reverse(sheets: dict, mapping_path: str) -> dict:
     for rows in out.values():
         for row in rows:
             for col, v in row.items():
-                row[col] = "Revertido" if col == "Anonimizado" and v else sub(v)
+                row[col] = D("Revertido") if col == "Anonimizado" and v else sub(v)
     return out
 
 
@@ -501,13 +503,13 @@ def reverse_file(path: str, mapping_path: str, out_path: str | None = None) -> s
         with atomic_text(out_path, encoding="utf-8-sig") as f:
             f.write("\n".join(sub(line) for line in data.split("\n")))
     else:
-        raise ValueError("Solo se pueden revertir ficheros Excel (.xlsx) o CSV")
+        raise ValueError(_("Solo se pueden revertir ficheros Excel (.xlsx) o CSV"))
     return out_path
 
 
 def default_map_path(export_path: str) -> str:
     base = os.path.splitext(export_path.rstrip("/\\"))[0]
-    return base + "_correspondencia_CONFIDENCIAL.xlsx"
+    return base + _("_correspondencia_CONFIDENCIAL") + ".xlsx"
 
 
 # ---------------------------------------------------------------- reglas por columna
@@ -529,7 +531,7 @@ def _cert_names(a, v):
         elif val in a.maps["node"]:
             val = a.node(val)
         elif "." in val:
-            short, _, dom = val.partition(".")
+            short, _sep, dom = val.partition(".")
             short = a.node(short) if short in a.maps["node"] else ("*" if short == "*" else a.alias("server", short))
             val = f"{short}.{a.alias('domain', dom)}"
         elif val:

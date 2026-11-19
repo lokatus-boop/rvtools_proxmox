@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from pvetools.branding import COMPANY, asset_path  # noqa: F401  (mismos logos)
+from pvetools.i18n import N_
 
 DISCLAIMER_VERSION = 1
-DISCLAIMER_TITLE = "Aviso de uso"
+DISCLAIMER_TITLE = N_("Aviso de uso")
 DISCLAIMER = (
-    "USO EXCLUSIVO PARA PROYECTOS DE FSAS TECHNOLOGIES\n"
+    N_("USO EXCLUSIVO PARA PROYECTOS DE FSAS TECHNOLOGIES\n"
     "Esta herramienta es de uso interno y está destinada exclusivamente a proyectos de Fsas Technologies. "
     "No está permitida su distribución a clientes ni su uso fuera de ese ámbito.\n\n"
     "PRIVACIDAD Y DATOS\n"
@@ -18,6 +19,6 @@ DISCLAIMER = (
     "SIN GARANTÍA\n"
     "Los dimensionamientos son estimaciones basadas en el inventario y en los supuestos indicados. "
     "Revísalos y valídalos (compatibilidad y configuraciones con el fabricante) antes de presentarlos o "
-    "de comprometer una oferta."
+    "de comprometer una oferta.")
 )
-SHORT_NOTICE = "Uso exclusivo para proyectos de Fsas Technologies · Ejecución local, sin envío de datos a la nube"
+SHORT_NOTICE = N_("Uso exclusivo para proyectos de Fsas Technologies · Ejecución local, sin envío de datos a la nube")

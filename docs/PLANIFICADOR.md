@@ -1,5 +1,7 @@
 # PVE Migration Planner — Planificador de migración a Proxmox VE
 
+**Idiomas:** castellano · [English](PLANIFICADOR.en.md) · [Deutsch](PLANIFICADOR.de.md) · [Français](PLANIFICADOR.fr.md) · [Português](PLANIFICADOR.pt.md) · [Italiano](PLANIFICADOR.it.md)
+
 Aplicación **de uso interno de Fsas Technologies** (no se entrega al cliente) que lee el Excel o los CSV exportados por
 **PVE Inventory** y genera el diseño de la nueva plataforma Proxmox VE y el plan de migración:
 
@@ -15,6 +17,11 @@ Genera un juego de documentos para cada fase del proyecto (sin precios: la valor
 | `documentacion_asbuilt.docx` | Postventa | Lo que queda configurado: se genera a partir del inventario del **nuevo** entorno (PVE Inventory) y, opcionalmente, de la hoja de configuración completada (sin contraseñas, claves ni tokens). Termina con una guía rápida (cheatsheet) de GUI y comandos —QDevice, réplicas y recuperación ante desastre, gestión, pruebas y snapshots— con los nombres reales de la plataforma, y con el apartado de contacto y soporte de Fsas Technologies. |
 
 Se ejecuta en local, no se conecta a ningún servidor y no envía nada a la nube. Al arrancar por primera vez muestra el aviso de uso.
+
+**Idiomas:** la aplicación y todos los documentos que genera están en castellano, inglés, alemán, francés, portugués e
+italiano (menú *Idioma* o `--lang` en la línea de comandos). Los documentos se generan en el idioma elegido, sea cual sea
+el idioma en que se exportó el inventario, y los nombres de los ficheros se traducen (`migration_plan.xlsx`,
+`Migrationsplan_Kundendesign.docx`…). Las tablas de este documento usan los nombres en castellano.
 
 ![Destino](planificador_destino.png)
 
@@ -112,7 +119,7 @@ pvemigplan-cli.exe inventario.xlsx -e escenario.json --guardar-proyecto C:\Plane
 pvemigplan-cli.exe -p C:\Planes\ACME.pveplan -o C:\Planes\ACME          :: regenerar desde un proyecto guardado
 ```
 
-`--sin-implementacion` omite la guía de implementación y `--sin-word` los documentos Word. En modo `--analisis`,
+`--sin-implementacion` omite la guía de implementación, `--sin-word` los documentos Word y `--lang` elige el idioma de los documentos (todas las opciones tienen también nombre en inglés: `--customer`, `--charts`, `--no-pbs`, `--assessment`…). En modo `--analisis`,
 `--sin-word` / `--sin-excel` omiten el Word o el Excel del informe y `--graficos` guarda también los PNG.
 
 ### Hallazgos del informe de solo análisis

@@ -185,6 +185,27 @@ SCHEMA = {
     ],
     'vSource': [
         'Host conectado', 'Usuario', 'Autenticación', 'Fecha', 'Versión herramienta', 'Versión formato',
-        'Versión PVE', 'Clúster / nodo', 'Estado', 'Duración (s)', 'Anonimizado',
+        'Versión PVE', 'Clúster / nodo', 'Estado', 'Duración (s)', 'Anonimizado', 'Idioma',
     ],
 }
+
+# Traducción de valores al exportar/leer en otro idioma (ver pvetools.i18n):
+# - En estas columnas (texto libre generado por la herramienta) se traducen también las frases con datos
+#   (avisos, «Nodo pve1», «Todas excepto 100»…).
+TEXT_COLUMNS = {
+    'vHealth': {'Objeto', 'Mensaje'},
+    'vSource': {'Estado', 'Anonimizado'},
+    'vBackup': {'Selección'},
+    'vHA': {'Elemento'},
+    'vFirewall': {'Ámbito'},
+    'vSDN': {'VNet'},
+}
+# - En estas columnas (nombres puestos por el cliente) no se traduce nada.
+NAME_COLUMNS = {
+    'Clúster', 'Clúster / nodo', 'Nodo', 'Nombre', 'VMID', 'Almacenamiento', 'Bridge', 'VNet', 'Zona', 'Pool',
+    'Disco', 'Volumen', 'Medio', 'Snapshot', 'Padre', 'Recurso', 'Grupo', 'Grupos', 'Job', 'Usuario', 'ID', 'Host',
+    'Host conectado', 'Interfaz', 'Bond', 'Dispositivo', 'Fichero', 'Sujeto', 'Emisor', 'Comentario', 'Descripción',
+    'Notas', 'Tags', 'Ruta', 'Usuario / grupo', 'Rol', 'Hostname', 'Nombre en invitado', 'SO invitado', 'Alias',
+    'Repositorio', 'Handle', 'Conectado vía', 'Puertos', 'Usado por', 'Dispositivo base', 'Modelo',
+}
+

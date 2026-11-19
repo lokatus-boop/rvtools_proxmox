@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+from pvetools.i18n import _
+
 from .catalog import TB_TO_GIB
 
 PVE_OVERHEAD_GIB = 8          # sistema + servicios de Proxmox VE por nodo
@@ -66,15 +68,14 @@ def requirements(an, sc) -> Requirements:
         # pico estimado = 1,5 × uso instantáneo observado (el inventario es una foto, no una serie temporal)
         obs = an.observed_cpu_cores() * 1.5 * g / (cap["cpu_max_pct"] / 100)
         cores = max(obs, vcpu / (cap["ratio_vcpu_core"] * 2))
-        notes.append(f"CPU dimensionada por uso observado: {an.observed_cpu_cores():.1f} cores en uso × 1,5 de pico. "
-                     "El inventario es una foto puntual: confírmalo con métricas de varias semanas.")
+        notes.append(_("CPU dimensionada por uso observado: {observed_cpu_cores:.1f} cores en uso × 1,5 de pico. El inventario es una foto puntual: confírmalo con métricas de varias semanas.", observed_cpu_cores=an.observed_cpu_cores()))
     else:
         cores = cores_alloc
     ram = t["ram_gib"]
     ram_need = ram * g / (cap["ram_max_pct"] / 100)
     base = t["disk_eff_gib"] if cap["base_disco"] == "usado" else t["disk_prov_gib"]
     if cap["base_disco"] == "usado" and t["disk_used_known"] < len(an.guests) * 0.5:
-        notes.append("Menos de la mitad de las VMs informan del espacio usado (agente QEMU): para esas se toma el tamaño aprovisionado.")
+        notes.append(_("Menos de la mitad de las VMs informan del espacio usado (agente QEMU): para esas se toma el tamaño aprovisionado."))
     data = base * g * (1 + cap["reserva_snapshots_pct"] / 100)
     mv, mr = an.max_guest()
     return Requirements(vcpu=vcpu, ram_gib=ram, cores=cores, ram_need_gib=ram_need, data_gib=data,
@@ -150,7 +151,7 @@ def advise(an, sc, cat) -> list[dict]:
                     continue
                 # primera aproximación del nº de nodos para estimar OSDs y overhead
                 n = max(min_nodes, math.ceil(req.cores / node_cores) + spare, 2)
-                for _ in range(4):
+                for _i in range(4):
                     sto = storage_per_node(req, sc, n, cat["discos_datos_tb"], srv["bahias"])
                     usable_ram = ram - node_overhead_gib(ram, typ, sto["discos"])
                     if usable_ram <= max(req.max_ram_gib, 16):
@@ -171,9 +172,9 @@ def advise(an, sc, cat) -> list[dict]:
                 cost = n * (srv["coste_base"] + node_cores * cpu["coste_core"] + ram * cat["coste_gib_ram"]
                             + srv["sockets"] * cat["coste_suscripcion_socket"]
                             + sto["discos"] * sto["tb"] * 0.08)
-                spec = NodeSpec(model=srv["nombre"], reference=srv["referencia"], sockets=srv["sockets"],
+                spec = NodeSpec(model=_(srv["nombre"]), reference=_(srv["referencia"]), boot=_(NodeSpec.boot), sockets=srv["sockets"],
                                 cores_per_socket=cpu["cores"], ghz=cpu["ghz"], ram_gib=ram, count=n,
-                                cpu_label=f"{srv['sockets']}× {cpu['ejemplo']} (~{cpu['ghz']} GHz)",
+                                cpu_label=_("{sockets}× {ejemplo} (~{ghz} GHz)", sockets=srv['sockets'], ejemplo=_(cpu['ejemplo']), ghz=cpu['ghz']),
                                 data_disks=sto["discos"], data_disk_tb=sto["tb"], bays=srv["bahias"], cost=round(cost, 2),
                                 nics=default_nics(sc, typ))
                 cands.append(spec)
@@ -181,7 +182,7 @@ def advise(an, sc, cat) -> list[dict]:
         return []
     cands.sort(key=lambda s: (s.cost, s.count))
     picked, seen_counts = [], set()
-    labels = ["Recomendada", "Alternativa", "Alternativa"]
+    labels = [_("Recomendada"), _("Alternativa"), _("Alternativa")]
     for c in cands:
         key = (c.count, c.model)
         if key in seen_counts:
@@ -197,7 +198,7 @@ def advise(an, sc, cat) -> list[dict]:
     out = []
     for i, spec in enumerate(picked):
         ev = evaluate([spec], sc, req)
-        out.append({"etiqueta": labels[i] if i < len(labels) else "Alternativa", "nodos": [spec], "eval": ev,
+        out.append({"etiqueta": labels[i] if i < len(labels) else _("Alternativa"), "nodos": [spec], "eval": ev,
                     "coste": spec.cost})
     base = out[0]["coste"]
     for o in out:
@@ -228,7 +229,7 @@ def nodes_from_hardware(sc) -> list[NodeSpec]:
             ram_gib=int(s.get("ram_gib", 256)), count=int(s.get("cantidad", 1)), cpu_label=s.get("cpu", ""),
             data_disks=nd, data_disk_tb=(raw_tb / nd) if nd else 0.0,
             data_disk_type=", ".join(sorted({d.get("tipo", "") for d in data})) or "-",
-            boot=", ".join(f"{d.get('cantidad')}× {d.get('tipo')} {d.get('tb')} TB" for d in boot) or "(no indicado)",
+            boot=", ".join(f"{d.get('cantidad')}× {d.get('tipo')} {d.get('tb')} TB" for d in boot) or _("(no indicado)"),
             nics=s.get("nics", [])))
     return out
 
@@ -237,7 +238,7 @@ def expand(nodes: list[NodeSpec]) -> list[NodeSpec]:
     """Una entrada por nodo físico."""
     out = []
     for n in nodes:
-        for _ in range(max(n.count, 0)):
+        for _i in range(max(n.count, 0)):
             out.append(n)
     return out
 
@@ -278,36 +279,36 @@ def evaluate(groups: list[NodeSpec], sc, req: Requirements) -> dict:
         "problemas": [], "avisos": [],
     }
     if n < 3:
-        res["avisos"].append("Con menos de 3 nodos el clúster necesita un QDevice externo para mantener el quórum.")
+        res["avisos"].append(_("Con menos de 3 nodos el clúster necesita un QDevice externo para mantener el quórum."))
     if typ == "ceph" and n < 3:
-        res["problemas"].append("Ceph necesita al menos 3 nodos (recomendado 4 o más para recuperarse tras un fallo).")
+        res["problemas"].append(_("Ceph necesita al menos 3 nodos (recomendado 4 o más para recuperarse tras un fallo)."))
     if res["cpu_pct_n1"] > 100:
-        res["problemas"].append(f"CPU insuficiente con {spare} nodo(s) caído(s): {res['cpu_pct_n1']:.0f} % de ocupación.")
+        res["problemas"].append(_("CPU insuficiente con {spare} nodo(s) caído(s): {cpu_pct_n1:.0f} % de ocupación.", spare=spare, cpu_pct_n1=res['cpu_pct_n1']))
     elif res["cpu_pct_n1"] > cap["cpu_max_pct"] + 10:
-        res["avisos"].append(f"CPU ajustada con N-{spare}: {res['cpu_pct_n1']:.0f} %.")
+        res["avisos"].append(_("CPU ajustada con N-{spare}: {cpu_pct_n1:.0f} %.", spare=spare, cpu_pct_n1=res['cpu_pct_n1']))
     if res["ram_pct_n1"] > 100:
-        res["problemas"].append(f"RAM insuficiente con {spare} nodo(s) caído(s): {res['ram_pct_n1']:.0f} % de ocupación.")
+        res["problemas"].append(_("RAM insuficiente con {spare} nodo(s) caído(s): {ram_pct_n1:.0f} % de ocupación.", spare=spare, ram_pct_n1=res['ram_pct_n1']))
     elif res["ram_pct_n1"] > 95:
-        res["avisos"].append(f"RAM muy ajustada con N-{spare}: {res['ram_pct_n1']:.0f} %.")
+        res["avisos"].append(_("RAM muy ajustada con N-{spare}: {ram_pct_n1:.0f} %.", spare=spare, ram_pct_n1=res['ram_pct_n1']))
     if usable and res["alm_pct"] > 100:
-        res["problemas"].append(f"Almacenamiento insuficiente: se necesitan {req.data_gib/1024:.1f} TiB útiles y hay {usable/1024:.1f} TiB.")
+        res["problemas"].append(_("Almacenamiento insuficiente: se necesitan {data_gib:.1f} TiB útiles y hay {usable:.1f} TiB.", data_gib=req.data_gib/1024, usable=usable/1024))
     elif not usable:
-        res["problemas"].append("No se ha indicado capacidad de almacenamiento para las VMs.")
+        res["problemas"].append(_("No se ha indicado capacidad de almacenamiento para las VMs."))
     if nodes and max(x.threads for x in nodes) < req.max_vcpu:
-        res["problemas"].append(f"La VM más grande ({req.max_vcpu:.0f} vCPU) no cabe en ningún nodo.")
+        res["problemas"].append(_("La VM más grande ({max_vcpu:.0f} vCPU) no cabe en ningún nodo.", max_vcpu=req.max_vcpu))
     if nodes and max(x.ram_gib for x in nodes) * 0.9 < req.max_ram_gib:
-        res["problemas"].append(f"La VM más grande ({req.max_ram_gib:.0f} GiB de RAM) no cabe en ningún nodo.")
+        res["problemas"].append(_("La VM más grande ({max_ram_gib:.0f} GiB de RAM) no cabe en ningún nodo.", max_ram_gib=req.max_ram_gib))
     if typ == "ceph":
         osd_total = sum(x.data_disks for x in nodes)
         if osd_total and osd_total < 12:
-            res["avisos"].append(f"Solo {osd_total} OSDs en total: el rendimiento y la recuperación de Ceph mejoran con más discos.")
+            res["avisos"].append(_("Solo {osd_total} OSDs en total: el rendimiento y la recuperación de Ceph mejoran con más discos.", osd_total=osd_total))
         speeds = [max([nc.get("gbps", 0) for nc in x.nics if nc.get("uso") == "almacenamiento"] or [0]) for x in nodes]
         if speeds and min(speeds) < 25:
-            res["avisos"].append("Ceph sobre NVMe necesita red dedicada de 25 GbE o más (recomendado 2×25 GbE por nodo).")
+            res["avisos"].append(_("Ceph sobre NVMe necesita red dedicada de 25 GbE o más (recomendado 2×25 GbE por nodo)."))
     if len({(x.sockets, x.cores_per_socket) for x in nodes}) > 1:
-        res["avisos"].append("Nodos con CPUs distintas: usa un tipo de CPU virtual común (x86-64-v3 o el modelo más antiguo) para la migración en caliente.")
+        res["avisos"].append(_("Nodos con CPUs distintas: usa un tipo de CPU virtual común (x86-64-v3 o el modelo más antiguo) para la migración en caliente."))
     if req.cores and sum(x.ghz * x.cores for x in nodes) and min(x.ghz for x in nodes) < 1.8:
-        res["avisos"].append("Frecuencia de CPU baja: revisa el rendimiento por hilo frente a los servidores actuales.")
+        res["avisos"].append(_("Frecuencia de CPU baja: revisa el rendimiento por hilo frente a los servidores actuales."))
     res["ok"] = not res["problemas"]
     return res
 
@@ -328,15 +329,14 @@ def pbs_sizing(req: Requirements, sc, cat) -> dict:
     if tib <= 20:
         disk_tb = next((d for d in cat["discos_datos_tb"] if (math.ceil(usable_need / (d * TB_TO_GIB)) + 2) <= 12), cat["discos_datos_tb"][-1])
         nd = max(4, math.ceil(usable_need / (disk_tb * TB_TO_GIB / 1)) + 2)
-        layout = f"{nd}× SSD {disk_tb} TB en RAIDZ2 (all-flash: restauraciones y live-restore rápidos)"
+        layout = _("{nd}× SSD {disk_tb} TB en RAIDZ2 (all-flash: restauraciones y live-restore rápidos)", nd=nd, disk_tb=disk_tb)
         raw_usable = (nd - 2) * disk_tb * TB_TO_GIB
     else:
         disk_tb = next((d for d in cat["discos_pbs_tb"] if math.ceil(usable_need / (d * TB_TO_GIB)) + 2 <= 12), cat["discos_pbs_tb"][-1])
         data_disks = math.ceil(usable_need / (disk_tb * TB_TO_GIB))
         vdevs = max(1, math.ceil(data_disks / 8))
         nd = data_disks + 2 * vdevs
-        layout = (f"{nd}× HDD {disk_tb} TB en {vdevs} vdev(s) RAIDZ2 + 2× SSD/NVMe en espejo como «special device» "
-                  "(metadatos: imprescindible con HDD)")
+        layout = (_("{nd}× HDD {disk_tb} TB en {vdevs} vdev(s) RAIDZ2 + 2× SSD/NVMe en espejo como «special device» (metadatos: imprescindible con HDD)", nd=nd, disk_tb=disk_tb, vdevs=vdevs))
         raw_usable = data_disks * disk_tb * TB_TO_GIB
     ram = 32 + math.ceil(tib) * 1
     ram = next((x for x in (32, 64, 96, 128, 192, 256, 384, 512) if x >= ram), ram)
@@ -349,7 +349,7 @@ def pbs_sizing(req: Requirements, sc, cat) -> dict:
         "datos_origen_gib": base, "guardado_gib": stored, "util_necesario_gib": usable_need,
         "dias_cambio_efectivos": eff_days,
         "propuesta": {"cores": cores, "ram_gib": ram, "discos": layout, "util_gib": raw_usable * 0.95,
-                      "red": f"2× {max(sc['red']['velocidad_gbps'], 10)} GbE (bond) + 1 GbE gestión + BMC"},
+                      "red": _("2× {velocidad_gbps} GbE (bond) + 1 GbE gestión + BMC", velocidad_gbps=max(sc['red']['velocidad_gbps'], 10))},
         "horas_full": full_h, "horas_incremental": inc_h,
         "avisos": [],
     }
@@ -359,9 +359,9 @@ def pbs_sizing(req: Requirements, sc, cat) -> dict:
         out["definido"] = {"util_gib": have, "pct": usable_need / have * 100 if have else 999,
                            "ok": have >= usable_need, "ram_ok": (hw.get("ram_gib") or 0) >= ram}
         if have < usable_need:
-            out["avisos"].append(f"El PBS indicado tiene {have/1024:.1f} TiB útiles y se estiman {tib:.1f} TiB.")
+            out["avisos"].append(_("El PBS indicado tiene {have:.1f} TiB útiles y se estiman {tib:.1f} TiB.", have=have/1024, tib=tib))
         if (hw.get("ram_gib") or 0) < ram:
-            out["avisos"].append(f"RAM del PBS por debajo de la recomendada ({ram} GiB para ZFS con {tib:.0f} TiB).")
+            out["avisos"].append(_("RAM del PBS por debajo de la recomendada ({ram} GiB para ZFS con {tib:.0f} TiB).", ram=ram, tib=tib))
     if p.get("offsite"):
-        out["avisos"].append("Copia externa: un segundo PBS (otro CPD o proveedor) con la misma capacidad y job de sincronización (sync job).")
+        out["avisos"].append(_("Copia externa: un segundo PBS (otro CPD o proveedor) con la misma capacidad y job de sincronización (sync job)."))
     return out

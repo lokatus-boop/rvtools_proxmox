@@ -22,6 +22,8 @@ import tempfile
 import time
 import zipfile
 
+from .i18n import _
+
 _INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 ZIP_EXT = (".xlsx", ".xlsm", ".docx", ".pptx", ".zip")
@@ -55,39 +57,31 @@ def explain(exc: BaseException, path: str) -> str:
     name = os.path.basename(path) or path
     folder = os.path.dirname(os.path.abspath(path))
     if isinstance(exc, PermissionError) or getattr(exc, "errno", None) in (errno.EACCES, errno.EPERM):
-        return (f"No se pudo escribir «{name}» en {folder}.\n\n"
-                "Causas habituales:\n"
-                "• El fichero está abierto en Excel/Word: ciérralo y vuelve a intentarlo.\n"
-                "• La carpeta está protegida («Acceso controlado a carpetas» de Windows Defender suele bloquear "
-                "Documentos y Escritorio a programas nuevos; mira si salió un aviso de Windows Security).\n"
-                "• No tienes permiso de escritura en esa carpeta (p. ej. Archivos de programa o una unidad de red).\n\n"
-                f"Detalle: {exc}")
+        return (_("No se pudo escribir «{name}» en {folder}.\n\nCausas habituales:\n• El fichero está abierto en Excel/Word: ciérralo y vuelve a intentarlo.\n• La carpeta está protegida («Acceso controlado a carpetas» de Windows Defender suele bloquear Documentos y Escritorio a programas nuevos; mira si salió un aviso de Windows Security).\n• No tienes permiso de escritura en esa carpeta (p. ej. Archivos de programa o una unidad de red).\n\nDetalle: {exc}", name=name, folder=folder, exc=exc))
     if getattr(exc, "errno", None) == errno.ENOSPC:
-        return f"No hay espacio en disco para guardar «{name}» en {folder}."
+        return _("No hay espacio en disco para guardar «{name}» en {folder}.", name=name, folder=folder)
     if isinstance(exc, (FileNotFoundError, NotADirectoryError)) or getattr(exc, "errno", None) in (errno.ENOENT, errno.EINVAL):
-        return (f"La ruta «{path}» no es válida o la carpeta ya no existe (¿unidad de red desconectada, "
-                f"o carpeta temporal de un ZIP abierto sin descomprimir?).\n\nDetalle: {exc}")
-    return f"No se pudo guardar «{name}» en {folder}: {exc}"
+        return (_("La ruta «{path}» no es válida o la carpeta ya no existe (¿unidad de red desconectada, o carpeta temporal de un ZIP abierto sin descomprimir?).\n\nDetalle: {exc}", path=path, exc=exc))
+    return _("No se pudo guardar «{name}» en {folder}: {exc}", name=name, folder=folder, exc=exc)
 
 
 def verify(path: str) -> None:
     """Comprueba que el fichero no está vacío, ni lleno de ceros, y que un .xlsx/.docx es un ZIP íntegro."""
     size = os.path.getsize(path)
     if size == 0:
-        raise SaveError(f"El fichero «{os.path.basename(path)}» se ha quedado vacío al guardarlo.")
+        raise SaveError(_("El fichero «{basename}» se ha quedado vacío al guardarlo.", basename=os.path.basename(path)))
     with open(path, "rb") as f:
         head = f.read(4096)
     if not head.strip(b"\x00"):
-        raise SaveError(f"El fichero «{os.path.basename(path)}» se ha escrito solo con ceros (el disco o la carpeta "
-                        "sincronizada no ha guardado los datos).")
+        raise SaveError(_("El fichero «{basename}» se ha escrito solo con ceros (el disco o la carpeta sincronizada no ha guardado los datos).", basename=os.path.basename(path)))
     if path.lower().endswith(ZIP_EXT) or head[:2] == b"PK":
         try:
             with zipfile.ZipFile(path) as z:
                 bad = z.testzip()
         except zipfile.BadZipFile as exc:
-            raise SaveError(f"El fichero «{os.path.basename(path)}» ha quedado dañado al guardarlo ({exc}).") from exc
+            raise SaveError(_("El fichero «{basename}» ha quedado dañado al guardarlo ({exc}).", basename=os.path.basename(path), exc=exc)) from exc
         if bad:
-            raise SaveError(f"El fichero «{os.path.basename(path)}» ha quedado dañado al guardarlo (parte {bad}).")
+            raise SaveError(_("El fichero «{basename}» ha quedado dañado al guardarlo (parte {bad}).", basename=os.path.basename(path), bad=bad))
 
 
 def _fsync(path: str) -> None:
@@ -106,9 +100,7 @@ def _replace(src: str, dst: str, attempts: int = 8) -> None:
             return
         except PermissionError:
             if i == attempts - 1:
-                raise SaveError(f"No se pudo sustituir «{os.path.basename(dst)}»: está abierto en Excel/Word u otro "
-                                f"programa lo tiene bloqueado.\nCiérralo y vuelve a intentarlo.\n\nCarpeta: "
-                                f"{os.path.dirname(dst)}") from None
+                raise SaveError(_("No se pudo sustituir «{basename}»: está abierto en Excel/Word u otro programa lo tiene bloqueado.\nCiérralo y vuelve a intentarlo.\n\nCarpeta: {dirname}", basename=os.path.basename(dst), dirname=os.path.dirname(dst))) from None
             time.sleep(0.25 * (i + 1))
 
 

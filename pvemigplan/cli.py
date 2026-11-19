@@ -1,6 +1,8 @@
 """Línea de comandos: pvemigplan-cli inventario.xlsx [opciones]"""
 from __future__ import annotations
 
+from pvetools.i18n import LANGS, _, get_lang, setup_cli
+
 import argparse
 import json
 import os
@@ -15,49 +17,51 @@ from .scenario import STORAGE_TYPES, load as load_scenario, new, save as save_sc
 
 
 def build_parser():
-    ap = argparse.ArgumentParser(prog="pvemigplan-cli", description=f"{APP_NAME} {__version__} · {COMPANY}. {SHORT_NOTICE}")
+    ap = argparse.ArgumentParser(prog="pvemigplan-cli", description=f"{APP_NAME} {__version__} · {COMPANY}. {_(SHORT_NOTICE)}")
     ap.add_argument("inventario", nargs="*",
-                    help="Excel de PVE Inventory, carpeta con los CSV o un CSV (se pueden indicar varios). Opcional con "
-                         "--proyecto o para documentar un clúster nuevo sin inventario")
-    ap.add_argument("-p", "--proyecto", metavar="PVEPLAN",
-                    help=f"Abre un proyecto guardado ({PROJECT_EXT}): inventario, hardware y opciones; lo que se indique "
-                         "además en la línea de comandos tiene prioridad")
-    ap.add_argument("--guardar-proyecto", metavar="PVEPLAN", help=f"Guarda el proyecto ({PROJECT_EXT}) para retomarlo más tarde")
-    ap.add_argument("--sin-migracion", action="store_true",
-                    help="Solo documentar la nueva plataforma (diseño, implementación, hoja de configuración), sin plan de "
-                         "migración. Es automático si el inventario no tiene VMs/CTs o no se indica inventario")
-    ap.add_argument("--analisis", "--solo-analisis", dest="analisis", action="store_true",
-                    help="Solo análisis: informe de la infraestructura actual (tipo RVTools/health check) con gráficos, "
-                         "sin plan de migración ni hardware")
+                    help=_("Excel de PVE Inventory, carpeta con los CSV o un CSV (se pueden indicar varios). Opcional con "
+                         "--proyecto o para documentar un clúster nuevo sin inventario"))
+    ap.add_argument("-p", "--proyecto", "--project", metavar="PVEPLAN",
+                    help=_("Abre un proyecto guardado ({PROJECT_EXT}): inventario, hardware y opciones; lo que se indique además en la línea de comandos tiene prioridad", PROJECT_EXT=PROJECT_EXT))
+    ap.add_argument("--guardar-proyecto", "--save-project", metavar="PVEPLAN", help=_("Guarda el proyecto ({PROJECT_EXT}) para retomarlo más tarde", PROJECT_EXT=PROJECT_EXT))
+    ap.add_argument("--sin-migracion", "--no-migration", action="store_true",
+                    help=_("Solo documentar la nueva plataforma (diseño, implementación, hoja de configuración), sin plan de "
+                         "migración. Es automático si el inventario no tiene VMs/CTs o no se indica inventario"))
+    ap.add_argument("--analisis", "--solo-analisis", "--assessment", dest="analisis", action="store_true",
+                    help=_("Solo análisis: informe de la infraestructura actual (tipo RVTools/health check) con gráficos, "
+                         "sin plan de migración ni hardware"))
     ap.add_argument("--asbuilt", action="store_true",
-                    help="Documentación as-built para postventa: el inventario es el del entorno YA implantado")
-    ap.add_argument("--hoja-config", metavar="XLSX",
-                    help="Plan: plantilla de la hoja de configuración a rellenar. As-built: hoja ya completada (sin contraseñas)")
-    ap.add_argument("--autor", help="Nombre de quien prepara los documentos")
-    ap.add_argument("--sin-implementacion", action="store_true", help="No generar la guía de implementación")
-    ap.add_argument("-e", "--escenario", help="JSON del escenario (parámetros y hardware); se crea uno de ejemplo con --guardar-escenario")
-    ap.add_argument("-o", "--salida", default=".", help="Carpeta de salida (por defecto, la actual)")
-    ap.add_argument("-n", "--nombre", default="plan_migracion", help="Nombre base de los ficheros")
-    ap.add_argument("--cliente", help="Nombre del cliente")
-    ap.add_argument("--modo", choices=["aconsejar", "hardware"], help="aconsejar hardware o validar el del escenario")
-    ap.add_argument("--almacenamiento", choices=list(STORAGE_TYPES), help="Tipo de almacenamiento de destino")
-    ap.add_argument("--pve", help="Versión de Proxmox VE de destino (p. ej. 9.1)")
-    ap.add_argument("--sin-pbs", action="store_true", help="No incluir Proxmox Backup Server")
-    ap.add_argument("--catalogo", help="JSON con un catálogo de hardware propio")
-    ap.add_argument("--sin-word", action="store_true", help="No generar el documento Word (diseño para el cliente o informe de análisis)")
-    ap.add_argument("--sin-excel", action="store_true", help="Solo análisis: no generar el Excel del informe")
-    ap.add_argument("--graficos", action="store_true", help="Guardar también los gráficos PNG")
-    ap.add_argument("--guardar-escenario", metavar="RUTA", help="Guarda el escenario usado (útil como plantilla)")
-    ap.add_argument("-q", "--quiet", action="store_true")
+                    help=_("Documentación as-built para postventa: el inventario es el del entorno YA implantado"))
+    ap.add_argument("--hoja-config", "--config-sheet", metavar="XLSX",
+                    help=_("Plan: plantilla de la hoja de configuración a rellenar. As-built: hoja ya completada (sin contraseñas)"))
+    ap.add_argument("--autor", "--author", help=_("Nombre de quien prepara los documentos"))
+    ap.add_argument("--sin-implementacion", "--no-implementation", action="store_true", help=_("No generar la guía de implementación"))
+    ap.add_argument("-e", "--escenario", "--scenario", help=_("JSON del escenario (parámetros y hardware); se crea uno de ejemplo con --guardar-escenario"))
+    ap.add_argument("-o", "--salida", "--output", default=".", help=_("Carpeta de salida (por defecto, la actual)"))
+    ap.add_argument("-n", "--nombre", "--name", default=None, help=_("Nombre base de los ficheros"))
+    ap.add_argument("--cliente", "--customer", help=_("Nombre del cliente"))
+    ap.add_argument("--modo", "--mode", choices=["aconsejar", "hardware"], help=_("aconsejar hardware o validar el del escenario"))
+    ap.add_argument("--almacenamiento", "--storage", choices=list(STORAGE_TYPES), help=_("Tipo de almacenamiento de destino"))
+    ap.add_argument("--pve", help=_("Versión de Proxmox VE de destino (p. ej. 9.1)"))
+    ap.add_argument("--sin-pbs", "--no-pbs", action="store_true", help=_("No incluir Proxmox Backup Server"))
+    ap.add_argument("--catalogo", "--catalog", help=_("JSON con un catálogo de hardware propio"))
+    ap.add_argument("--sin-word", "--no-word", action="store_true", help=_("No generar el documento Word (diseño para el cliente o informe de análisis)"))
+    ap.add_argument("--sin-excel", "--no-excel", action="store_true", help=_("Solo análisis: no generar el Excel del informe"))
+    ap.add_argument("--graficos", "--charts", action="store_true", help=_("Guardar también los gráficos PNG"))
+    ap.add_argument("--guardar-escenario", "--save-scenario", metavar="RUTA", help=_("Guarda el escenario usado (útil como plantilla)"))
+    ap.add_argument("--lang", "--idioma", choices=list(LANGS), default=get_lang(),
+                    help=_("Idioma de los mensajes y de los documentos generados (es, en, de, fr, pt, it). Por defecto, el del sistema"))
+    ap.add_argument("-q", "--quiet", action="store_true", help=_("No mostrar el resumen"))
     ap.add_argument("--version", action="version", version=f"{APP_NAME} {__version__}")
     return ap
 
 
 def main(argv=None):
+    setup_cli(sys.argv[1:] if argv is None else argv)
     ap = build_parser()
     a = ap.parse_args(argv)
     if (a.analisis or a.asbuilt) and not a.inventario:
-        ap.error("--analisis y --asbuilt necesitan el inventario (Excel o carpeta de CSV)")
+        ap.error(_("--analisis y --asbuilt necesitan el inventario (Excel o carpeta de CSV)"))
     if a.analisis:
         return _analysis(a)
     if a.asbuilt:
@@ -74,7 +78,7 @@ def main(argv=None):
         if a.escenario:
             sc = load_scenario(a.escenario)
     except (ProjectError, OSError, json.JSONDecodeError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(_("Error: {exc}", exc=exc), file=sys.stderr)
         return 2
     if a.sin_migracion:
         sc["sin_migracion"] = True
@@ -97,19 +101,19 @@ def main(argv=None):
             sheets = empty_sheets()
             files = []
             if not a.quiet:
-                print("Sin inventario: se documenta la nueva plataforma sin plan de migración.", file=sys.stderr)
+                print(_("Sin inventario: se documenta la nueva plataforma sin plan de migración."), file=sys.stderr)
         for w in format_warnings(sheets) if any(sheets.values()) else []:
-            print("Aviso:", w, file=sys.stderr)
+            print(_("Aviso:"), w, file=sys.stderr)
         plan = Plan(sheets, sc, a.catalogo)
     except (InventoryError, PlanError, OSError, json.JSONDecodeError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(_("Error: {exc}", exc=exc), file=sys.stderr)
         return 2
     from .outputs import generate
     try:
-        out = generate(plan, a.salida, a.nombre, xlsx=True, design=not a.sin_word, impl=not a.sin_implementacion,
+        out = generate(plan, a.salida, a.nombre or _("plan_migracion"), xlsx=True, design=not a.sin_word, impl=not a.sin_implementacion,
                        charts=a.graficos, config_template=a.hoja_config)
     except Exception as exc:  # noqa: BLE001
-        print(f"Error al generar: {exc}", file=sys.stderr)
+        print(_("Error al generar: {exc}", exc=exc), file=sys.stderr)
         return 2
     if a.guardar_escenario:
         save_scenario(sc, a.guardar_escenario)
@@ -121,7 +125,7 @@ def main(argv=None):
         print(plan.text_summary())
         print()
         for p in out:
-            print("Generado:", p)
+            print(_("Generado:"), p)
     return 0 if plan.eval["ok"] else 1
 
 
@@ -131,25 +135,25 @@ def _analysis(a):
     try:
         sheets = load(a.inventario)
         for w in format_warnings(sheets):
-            print("Aviso:", w, file=sys.stderr)
+            print(_("Aviso:"), w, file=sys.stderr)
     except (InventoryError, OSError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(_("Error: {exc}", exc=exc), file=sys.stderr)
         return 2
     if a.sin_word and a.sin_excel:
-        print("Error: con --sin-word y --sin-excel no se generaría nada.", file=sys.stderr)
+        print(_("Error: con --sin-word y --sin-excel no se generaría nada."), file=sys.stderr)
         return 2
     an = Assessment(sheets, a.cliente or "", a.autor or "")
-    name = a.nombre if a.nombre != "plan_migracion" else "analisis_infraestructura"
+    name = a.nombre or _("analisis_infraestructura")
     try:
         out = generate(an, a.salida, name, docx=not a.sin_word, xlsx=not a.sin_excel, charts=a.graficos)
     except Exception as exc:  # noqa: BLE001
-        print(f"Error al generar: {exc}", file=sys.stderr)
+        print(_("Error al generar: {exc}", exc=exc), file=sys.stderr)
         return 2
     if not a.quiet:
         print(an.text_summary())
         print()
         for p in out:
-            print("Generado:", p)
+            print(_("Generado:"), p)
     return 0
 
 
@@ -158,13 +162,13 @@ def _asbuilt(a):
     try:
         sheets = load(a.inventario)
     except (InventoryError, OSError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(_("Error: {exc}", exc=exc), file=sys.stderr)
         return 2
     os.makedirs(a.salida, exist_ok=True)
-    name = a.nombre if a.nombre != "plan_migracion" else "documentacion_asbuilt"
+    name = a.nombre or _("documentacion_asbuilt")
     p = to_asbuilt_docx(sheets, os.path.join(a.salida, name + ".docx"), a.cliente or "", a.autor or "", a.hoja_config)
     if not a.quiet:
-        print("Generado:", p)
+        print(_("Generado:"), p)
     return 0
 
 

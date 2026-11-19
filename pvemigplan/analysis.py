@@ -5,6 +5,8 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
+from pvetools.i18n import N_, _
+
 from .loader import num, yes
 
 GIB_PER_TIB = 1024
@@ -13,7 +15,7 @@ OS_FAMILY = {
     "l26": "Linux", "l24": "Linux (kernel 2.4)", "win11": "Windows 11 / Server 2022-2025", "win10": "Windows 10 / Server 2016-2019",
     "win8": "Windows 8 / Server 2012", "win7": "Windows 7 / Server 2008 R2", "w2k8": "Windows Vista / Server 2008",
     "w2k3": "Windows XP / Server 2003", "wxp": "Windows XP / Server 2003", "w2k": "Windows 2000", "wvista": "Windows Vista / Server 2008",
-    "solaris": "Solaris", "other": "Otro",
+    "solaris": "Solaris", "other": N_("Otro"),
 }
 LEGACY_OS = {"l24", "w2k", "wxp", "w2k3", "w2k8", "wvista", "win7", "win8"}
 CT_OS = {"debian", "ubuntu", "centos", "fedora", "opensuse", "archlinux", "alpine", "gentoo", "nixos", "devuan", "unmanaged"}
@@ -60,8 +62,8 @@ class Guest:
     @property
     def os_label(self):
         if self.kind == "CT":
-            return f"Linux CT ({self.ostype})" if self.ostype else "Linux CT"
-        return OS_FAMILY.get(self.ostype, self.ostype or "Desconocido")
+            return _("Linux CT ({ostype})", ostype=self.ostype) if self.ostype else _("Linux CT")
+        return _(OS_FAMILY.get(self.ostype, self.ostype or N_("Desconocido")))
 
     @property
     def os_family(self):
@@ -71,7 +73,7 @@ class Guest:
             return "Windows"
         if self.ostype.startswith("l"):
             return "Linux"
-        return "Otros"
+        return _("Otros")
 
     @property
     def disk_effective_gib(self):
@@ -316,19 +318,20 @@ class Analysis:
         """Resumen en una frase: «3 zonas (vlan: 2, evpn: 1), 5 VNets, 4 subredes, 1 controlador»."""
         s = self.sdn()
         if not self.has_sdn():
-            return "sin SDN configurado"
+            return _("sin SDN configurado")
         types = Counter(z["type"] or "?" for z in s["zones"])
         nsub = sum(len(v["subnets"]) for v in s["vnets"])
-        parts = [f"{len(s['zones'])} zona{'s' if len(s['zones']) != 1 else ''} ("
-                 + ", ".join(f"{k}: {n}" for k, n in sorted(types.items())) + ")",
-                 f"{len(s['vnets'])} VNet{'s' if len(s['vnets']) != 1 else ''}", f"{nsub} subred{'es' if nsub != 1 else ''}"]
+        nz, nv = len(s["zones"]), len(s["vnets"])
+        parts = [(_("1 zona") if nz == 1 else _("{n} zonas", n=nz)) + " (" + ", ".join(f"{k}: {n}" for k, n in sorted(types.items())) + ")",
+                 _("1 VNet") if nv == 1 else _("{n} VNets", n=nv),
+                 _("1 subred") if nsub == 1 else _("{n} subredes", n=nsub)]
         objs = Counter(o["object"] for o in s["objects"] if not (o["object"] == "IPAM" and o["type"] == "pve"))
-        names = {"Controlador": ("controlador", "controladores"), "IPAM": ("IPAM externo", "IPAM externos"),
-                 "DNS": ("servidor DNS", "servidores DNS"), "Fabric": ("fabric", "fabrics"),
-                 "Nodo de fabric": ("nodo de fabric", "nodos de fabric")}
+        names = {"Controlador": (N_("1 controlador"), N_("{n} controladores")), "IPAM": (N_("1 IPAM externo"), N_("{n} IPAM externos")),
+                 "DNS": (N_("1 servidor DNS"), N_("{n} servidores DNS")), "Fabric": (N_("1 fabric"), N_("{n} fabrics")),
+                 "Nodo de fabric": (N_("1 nodo de fabric"), N_("{n} nodos de fabric"))}
         for k, n in objs.items():
-            one, many = names.get(k, (k.lower(), k.lower()))
-            parts.append(f"{n} {one if n == 1 else many}")
+            one, many = names.get(k, ("1 " + k.lower(), "{n} " + k.lower()))
+            parts.append(_(one) if n == 1 else _(many, n=n))
         return ", ".join(parts)
 
     def sdn_tables(self) -> dict:
@@ -337,9 +340,9 @@ class Analysis:
         multi = len({z["cluster"] for z in s["zones"]} | {o["cluster"] for o in s["objects"]}) > 1
         cl = lambda r: {"Clúster": r["cluster"]} if multi else {}  # noqa: E731
         zones = [{**cl(z), "Zona": z["zone"], "Tipo": z["type"], "Red / underlay": sdn_zone_detail(z),
-                  "Nodos": z["nodes"] or "todos", "MTU": z["mtu"] or "auto",
+                  "Nodos": z["nodes"] or _("todos"), "MTU": z["mtu"] or "auto",
                   "IPAM / DNS": " · ".join(x for x in (z["ipam"] and f"IPAM {z['ipam']}", z["dns"] and f"DNS {z['dns']}",
-                                                       z["dnszone"] and f"zona {z['dnszone']}", z["dhcp"] and f"DHCP {z['dhcp']}") if x),
+                                                       z["dnszone"] and _("zona {z}", z=z["dnszone"]), z["dhcp"] and f"DHCP {z['dhcp']}") if x),
                   "VNets": len(z["vnets"]), "Pendiente de aplicar": "Sí" if z["pending"] else ""} for z in s["zones"]]
         vnets = []
         for v in s["vnets"]:
@@ -419,16 +422,16 @@ def sdn_zone_detail(z) -> str:
     """Qué hay debajo de una zona SDN: bridge, peers VXLAN o controlador EVPN."""
     t = z.get("type")
     if t in ("vlan", "qinq"):
-        out = f"bridge {z.get('bridge') or '?'}" + (f" · VLAN de servicio {z['qinq_tag']}" if z.get("qinq_tag") else "")
+        out = f"bridge {z.get('bridge') or '?'}" + (_(" · VLAN de servicio {qinq_tag}", qinq_tag=z['qinq_tag']) if z.get("qinq_tag") else "")
     elif t == "vxlan":
         out = f"peers {z.get('peers') or '?'}"
     elif t == "evpn":
-        out = f"controlador {z.get('controller') or '?'}" + (f" · VRF VNI {z['vrf_vxlan']}" if z.get("vrf_vxlan") else "") \
-            + (f" · exit nodes {z['exitnodes']}" if z.get("exitnodes") else " · sin exit nodes")
+        out = _("controlador {controller}", controller=z.get('controller') or '?') + (_(" · VRF VNI {vrf_vxlan}", vrf_vxlan=z['vrf_vxlan']) if z.get("vrf_vxlan") else "") \
+            + (_(" · exit nodes {exitnodes}", exitnodes=z['exitnodes']) if z.get("exitnodes") else _(" · sin exit nodes"))
     elif t == "simple":
-        out = "local en cada nodo (sin red física)"
+        out = _("local en cada nodo (sin red física)")
     else:
         out = ""
     if z.get("fabric"):
-        out += f" · fabric {z['fabric']}"
+        out += _(" · fabric {fabric}", fabric=z['fabric'])
     return out
