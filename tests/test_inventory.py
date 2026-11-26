@@ -134,3 +134,26 @@ def test_password_login_with_2fa():
     sheets = Inventory().collect([{"host": sa, "user": "tfa@pam", "password": "pw", "otp": "123456"}])
     assert sheets["vSource"][0]["Estado"] == "OK"
     assert sheets["vSource"][0]["Autenticación"] == "Contraseña + 2FA (TOTP)"
+
+
+def test_pve9_prune_backups_as_object():
+    """PVE 9 devuelve prune-backups como objeto: debe exportarse como texto (antes: «Cannot convert {...} to Excel»)."""
+    from openpyxl import load_workbook
+    from pvetools.export import flat
+    data = mock_pve.standalone_data()
+    data["cluster/backup"] = [{"id": "backup-pve9", "enabled": 1, "schedule": "21:00", "storage": "local", "mode": "snapshot",
+                               "all": 1, "prune-backups": {"keep-monthly": "12", "keep-daily": "7", "keep-hourly": "1",
+                                                           "keep-yearly": "2", "keep-weekly": "8", "keep-last": "6"}}]
+    tok = {"user": "auditor@pve", "token_id": "inv", "token_secret": "secret"}
+    sheets = Inventory().collect([{**tok, "host": serve(data)}])
+    job = next(r for r in sheets["vBackup"] if r["Job"] == "backup-pve9")
+    assert job["Retención"] == "keep-last=6,keep-hourly=1,keep-daily=7,keep-weekly=8,keep-monthly=12,keep-yearly=2"
+    # cualquier otro dict/lista que llegue de la API tampoco rompe el Excel ni el CSV
+    sheets["vBackup"].append({"Job": "raro", "Retención": {"keep-last": 3}, "Comentario": ["a", "b"]})
+    d = tempfile.mkdtemp()
+    to_xlsx(sheets, os.path.join(d, "inv.xlsx"))
+    to_csv(sheets, d)
+    ws = load_workbook(os.path.join(d, "inv.xlsx"))["vBackup"]
+    vals = [c.value for row in ws.iter_rows() for c in row]
+    assert job["Retención"] in vals and "keep-last=3" in vals and "a, b" in vals
+    assert flat({"a": 1, "b": None}) == "a=1" and flat([]) is None and flat(5) == 5
