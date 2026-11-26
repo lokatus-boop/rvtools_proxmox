@@ -31,11 +31,21 @@ def columns(rows: list[dict], sheet: str | None = None) -> list[str]:
     return cols
 
 
+def flat(v):
+    """Valor que Excel/CSV puedan guardar: un dict o una lista que la API devuelva tal cual
+    (p. ej. prune-backups en PVE 9) se convierte en texto «clave=valor,...» / «a, b»."""
+    if isinstance(v, dict):
+        return ",".join(f"{k}={flat(x)}" for k, x in v.items() if x not in (None, "")) or None
+    if isinstance(v, (list, tuple, set)):
+        return ", ".join(str(flat(x)) for x in v if x not in (None, "")) or None
+    return v
+
+
 def _cell(sheet, col, row):
     """Valor de una celda en el idioma de exportación (vSource «Idioma» = idioma del fichero)."""
     if sheet == "vSource" and col == "Idioma":
         return get_lang()
-    return cell_out(sheet, col, row.get(col))
+    return cell_out(sheet, col, flat(row.get(col)))
 
 
 def to_xlsx(sheets: dict, path: str):
@@ -56,7 +66,7 @@ def to_xlsx(sheets: dict, path: str):
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
         for i, c in enumerate(cols, 1):
-            width = max([len(_(c))] + [len(str(r.get(c) or "")) for r in rows[:500]])
+            width = max([len(_(c))] + [len(str(flat(r.get(c)) or "")) for r in rows[:500]])
             ws.column_dimensions[get_column_letter(i)].width = min(max(width + 2, 8), 60)
         if name == "vHealth" and "Severidad" in cols:
             for row, r in zip(ws.iter_rows(min_row=2), rows):

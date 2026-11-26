@@ -53,6 +53,21 @@ def parse_kv(value: str, first_key: str | None = None) -> dict:
     return out
 
 
+PRUNE_ORDER = ("keep-all", "keep-last", "keep-hourly", "keep-daily", "keep-weekly", "keep-monthly", "keep-yearly")
+
+
+def prune_str(v) -> str | None:
+    """Retención (prune-backups) como texto «keep-last=6,keep-daily=7,...».
+
+    PVE 8 la devuelve como cadena, pero PVE 9 puede devolverla como objeto (dict)."""
+    if v is None or v == "":
+        return None
+    if isinstance(v, dict):
+        keys = [k for k in PRUNE_ORDER if k in v] + sorted(k for k in v if k not in PRUNE_ORDER)
+        return ",".join(f"{k}={v[k]}" for k in keys if v[k] not in (None, "")) or None
+    return str(v)
+
+
 def size_to_gib(s) -> float | None:
     if s in (None, ""):
         return None
@@ -514,7 +529,7 @@ class Inventory:
                 "Planificación": j.get("schedule") or (f"{j.get('dow')} {j.get('starttime')}" if j.get("starttime") else None),
                 "Almacenamiento": j.get("storage"), "Modo": j.get("mode"), "Compresión": j.get("compress"),
                 "Selección": sel, "Nodo": j.get("node"),
-                "Retención": j.get("prune-backups") or (f"maxfiles={j['maxfiles']}" if j.get("maxfiles") else None),
+                "Retención": prune_str(j.get("prune-backups")) or (f"maxfiles={j['maxfiles']}" if j.get("maxfiles") else None),
                 "Notificación": j.get("mailnotification") or j.get("notification-mode"),
                 "Comentario": j.get("comment"),
             })
